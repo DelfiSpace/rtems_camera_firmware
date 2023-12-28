@@ -9,7 +9,7 @@ python
 import subprocess
 
 # set exectable file to debug
-elf2debug = "/home/v/RTEMS/app/hello/build/arm-rtems6-stm32l4/hello.elf"
+elf2debug = "/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/camera_firmware.elf"
 
 
 def get_remote_ip():

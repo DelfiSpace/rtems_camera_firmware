@@ -31,7 +31,7 @@ def build(bld):
     rtems.build(bld)
 
     bld(features = 'c cprogram',
-        target = 'hello.elf',
+        target = 'camera_firmware.elf',
         cflags = '-g -O0 -mthumb -mfloat-abi=hard',
         source = ['hello.c',
                   'init.c'])
