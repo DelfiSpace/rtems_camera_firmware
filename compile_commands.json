@@ -1,0 +1,40 @@
+[
+  {
+    "arguments": [
+      "/home/v/RTEMS/bld/6/bin/arm-rtems6-gcc",
+      "-mcpu=cortex-m4",
+      "-mthumb",
+      "-mfloat-abi=hard",
+      "-mfpu=auto",
+      "-isystem/home/v/RTEMS/bld/6/arm-rtems6/stm32l4/lib/include",
+      "-g",
+      "-O0",
+      "-mthumb",
+      "-mfloat-abi=hard",
+      "-c",
+      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/init.c.1.o",
+      "../../init.c"
+    ],
+    "directory": "/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4",
+    "file": "/home/v/RTEMS/app/rtems_camera_firmware/init.c"
+  },
+  {
+    "arguments": [
+      "/home/v/RTEMS/bld/6/bin/arm-rtems6-gcc",
+      "-mcpu=cortex-m4",
+      "-mthumb",
+      "-mfloat-abi=hard",
+      "-mfpu=auto",
+      "-isystem/home/v/RTEMS/bld/6/arm-rtems6/stm32l4/lib/include",
+      "-g",
+      "-O0",
+      "-mthumb",
+      "-mfloat-abi=hard",
+      "-c",
+      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/hello.c.1.o",
+      "../../hello.c"
+    ],
+    "directory": "/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4",
+    "file": "/home/v/RTEMS/app/rtems_camera_firmware/hello.c"
+  }
+]
