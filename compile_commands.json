@@ -12,11 +12,11 @@
       "-mthumb",
       "-mfloat-abi=hard",
       "-c",
-      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/init.c.1.o",
-      "../../init.c"
+      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/hello.c.1.o",
+      "../../hello.c"
     ],
     "directory": "/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4",
-    "file": "/home/v/RTEMS/app/rtems_camera_firmware/init.c"
+    "file": "/home/v/RTEMS/app/rtems_camera_firmware/hello.c"
   },
   {
     "arguments": [
@@ -31,10 +31,10 @@
       "-mthumb",
       "-mfloat-abi=hard",
       "-c",
-      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/hello.c.1.o",
-      "../../hello.c"
+      "-o/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4/init.c.1.o",
+      "../../init.c"
     ],
     "directory": "/home/v/RTEMS/app/rtems_camera_firmware/build/arm-rtems6-stm32l4",
-    "file": "/home/v/RTEMS/app/rtems_camera_firmware/hello.c"
+    "file": "/home/v/RTEMS/app/rtems_camera_firmware/init.c"
   }
 ]
