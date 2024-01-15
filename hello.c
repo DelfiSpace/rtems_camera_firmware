@@ -14,28 +14,28 @@
 #include <stm32l4r9_module_clk_config.h>
 #include <stm32l4r9_module_mspi_mt29.h>
 
-/* This driver functions declares the mt29 push and pull dma buffers
- * and configures the dma channels
- */
-/*
-TODO: move to drivers
-TODO: document the difference (in particular in placement in memory
-and scope) of defining a statuc global vs global variable
-TODO: Study and write down best practices for memory allocation
-in multithreaded systems
-WARNING: is it correct to have it as global,
-is there a better way, since it is a buffer that in a
-larger project may be accessed by several structs?
-How can mutexes be used in this case?
-*/
+/* ST includes <begin> */
+#include "dcmi.h"
+#include "gpio.h"
+#include "i2c.h"
+#include "main.h"
+
+void SystemClock_Config(void);
+/* ST includes <end> */
+
 char dma_push_buffer[MT29_PAGE_SIZE];
 char dma_pull_buffer[MT29_PAGE_SIZE];
 
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ USART   INITIALIZATION  -------------------------------------
-  clock_configure();
+  // clock_configure();
+  HAL_Init();
+  SystemClock_Config();
+  MX_GPIO_Init();
+  MX_DCMI_Init();
+  MX_I2C1_Init();
   // ------------ USART   INITIALIZATION  -------------------------------------
-  uart_init(UART2, 115200);
+  uart_init(UART2, 9600);
 
   // ------------ QUADSPI INITIALIZATION  -------------------------------------
   // construct the mspi interface object
@@ -78,15 +78,17 @@ rtems_task Init(rtems_task_argument ignored) {
     // throw error
   }
 
-  // disable write protection // does not do status verification
-  mspi_transfer_dma(octospi2, mt29.write_unlock, NULL);
-  mspi_transfer_dma(octospi2, mt29.write_enable, NULL);
-  mspi_autopoll_wait(octospi2, mt29.write_enable, NULL, WEL_MASK, WEL_MATCH);
+  octospi1.data_ptr = &verificationdata[0];
+  octospi1.size_tr = MT29_PAGE_SIZE;
 
-  mspi_transfer_dma(octospi2, mt29.page_load_SINGLE, &test_n_addr);
+  // disable write protection // does not do status verification
+  mspi_transfer(octospi1, mt29.write_unlock, NULL);
+  mspi_transfer(octospi1, mt29.write_enable_polled, NULL);
+
+  mspi_transfer(octospi1, mt29.page_load_SINGLE, &test_n_addr);
   // mspi_transfer_dma(octospi2, mt29.page_program, &test_n_addr);
   // mspi_transfer_dma(octospi2, mt29.page_read_from_nand, &test_n_addr);
-  mspi_transfer_dma(octospi2, mt29.page_read_from_cache_SINGLE, &test_n_addr);
+  mspi_transfer(octospi1, mt29.page_read_from_cache_SINGLE, &test_n_addr);
 
   // copy data to the dma buffers
   if (sizeof(verificationdata) == sizeof(dma_pull_buffer)) {
@@ -110,65 +112,6 @@ rtems_task Init(rtems_task_argument ignored) {
   exit(0);
 }
 
-/*
- * TODO:
- * Move to the bsp drivers
- *
- */
-
-void mspi_dma_ch_init(void) {
-  /*  TODO: protect the dma channels with a define guard */
-
-  /* Enable the dma controller 1 peripheral */
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
-
-#define OCTOSPI_DR_OFF 0x050
-  /* Set up DMA1_CH1 "Push" dma channel */
-  /* Set the peripheral register address in the DMA_CPARx register */
-  /* TODO: set from the strcuture definition */
-  DMA1_Channel1->CPAR = OCTOSPI2_R_BASE + OCTOSPI_DR_OFF;
-  /* Set the target memory address in the DMA_CMARx register */
-  DMA1_Channel1->CMAR = (uint32_t)&dma_push_buffer;
-  /* Configure the total number of data transfers in the DMA_CNDTRx register
-   */
-  DMA1_Channel1->CNDTR = MT29_PAGE_SIZE >> 2;
-  /* Configure the CCR register */
-  DMA1_Channel1->CCR |=
-      /* channel priority */
-      0b00 << DMA_CCR_PL_Pos |
-      /* channel direction (read from memory) */
-      DMA_CCR_DIR |
-      /* memory size (32bit)*/
-      0b11 << DMA_CCR_MSIZE_Pos |
-      /* peripheral size (32bit)*/
-      0b11 << DMA_CCR_PSIZE_Pos |
-      /* memory increment mode */
-      DMA_CCR_MINC;
-
-  /* Set up DMA1_CH2 "Pull" dma channel */
-  /* Set the peripheral register address in the DMA_CPARx register */
-  /* TODO: set from the strcuture definition */
-  DMA1_Channel2->CPAR = OCTOSPI2_R_BASE + OCTOSPI_DR_OFF;
-  /* Set the target memory address in the DMA_CMARx register */
-  DMA1_Channel2->CMAR = (uint32_t)&dma_pull_buffer;
-  /* Configure the total number of data transfers in the DMA_CNDTRx register
-   */
-  DMA1_Channel2->CNDTR = MT29_PAGE_SIZE >> 2;
-  /* Configure the CCR register */
-  DMA1_Channel2->CCR |=
-      /* channel priority */
-      0b00 << DMA_CCR_PL_Pos |
-      /* memory size (32bit)*/
-      0b11 << DMA_CCR_MSIZE_Pos |
-      /* peripheral size (32bit)*/
-      0b11 << DMA_CCR_PSIZE_Pos |
-      /* memory increment mode */
-      DMA_CCR_MINC;
-
-  /*Configure CCR register:channel direction (read from peripheral) */
-  DMA1_Channel2->CCR &= ~(DMA_CCR_DIR);
-}
-
 void mspi_dmamux_cfg(void) {
   /*Enable DMAMUX clock
    */
@@ -183,14 +126,54 @@ void mspi_dmamux_cfg(void) {
   DMAMUX1_Channel1->CCR |= 40UL;
 }
 
-/*
- * Generate something that you can call from the mspi_transfer_dma
- * to enable the channel
- * if send do something_send
- * if receive do something_receive
- *
- * as a function of the passed device structure
- * that is used as an identifier...
- * you really need to document this stuff
- * even sketches i don't care
- */
+void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+   */
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+   * in the RCC_OscInitTypeDef structure.
+   */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+  RCC_OscInitStruct.MSICalibrationValue = 0;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+  RCC_OscInitStruct.PLL.PLLM = 1;
+  RCC_OscInitStruct.PLL.PLLN = 60;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
+void Error_Handler(void) {
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1) {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
