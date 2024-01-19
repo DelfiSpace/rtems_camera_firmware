@@ -12,6 +12,7 @@
 
 #include <hal_uart.h>
 #include <stm32l4r9_module_clk_config.h>
+#include <stm32l4r9_module_dcmi.h>
 #include <stm32l4r9_module_mspi_mt29.h>
 
 /* ST includes <begin> */
@@ -23,6 +24,10 @@
 void SystemClock_Config(void);
 /* ST includes <end> */
 
+// Define testdata
+static uint32_t testdata[MT29_PAGE_W_SIZE];
+static uint32_t verificationdata[MT29_PAGE_W_SIZE];
+
 char dma_push_buffer[MT29_PAGE_SIZE];
 char dma_pull_buffer[MT29_PAGE_SIZE];
 
@@ -30,10 +35,16 @@ rtems_task Init(rtems_task_argument ignored) {
   // ------------ USART   INITIALIZATION  -------------------------------------
   // clock_configure();
   HAL_Init();
-  SystemClock_Config();
+  //    if current clock is not PLL
+  if ((RCC->CFGR & RCC_CFGR_SWS_Msk) != 0b11 << RCC_CFGR_SWS_Pos) {
+    SystemClock_Config();
+  }
   MX_GPIO_Init();
-  MX_DCMI_Init();
+  // MX_DCMI_Init();
   MX_I2C1_Init();
+
+  enable_debug_clock();
+
   // ------------ USART   INITIALIZATION  -------------------------------------
   uart_init(UART2, 9600);
 
@@ -57,10 +68,6 @@ rtems_task Init(rtems_task_argument ignored) {
   // mspi_dma_ch_init();
   mspi_dmamux_cfg();
 
-  // Define testdata
-  static uint32_t testdata[MT29_PAGE_W_SIZE];
-  static uint32_t verificationdata[MT29_PAGE_W_SIZE];
-
   // patterning of testdata
   for (uint32_t i = 0; i < MT29_PAGE_SIZE; i++) {
     testdata[i] = i;
@@ -75,15 +82,18 @@ rtems_task Init(rtems_task_argument ignored) {
   if (sizeof(testdata) == sizeof(dma_push_buffer)) {
     memcpy(dma_push_buffer, testdata, sizeof(testdata));
   } else {
-    // throw error
+    // throw errori
   }
 
+  /* OCTOSPI TEST SECTION
   octospi1.data_ptr = &verificationdata[0];
   octospi1.size_tr = MT29_PAGE_SIZE;
 
   // disable write protection // does not do status verification
-  mspi_transfer(octospi1, mt29.write_unlock, NULL);
-  mspi_transfer(octospi1, mt29.write_enable_polled, NULL);
+  // mspi_transfer(octospi1, mt29.get_status, NULL);
+  // mspi_transfer(octospi2, mt29.get_status, NULL);
+  // mspi_transfer(octospi1, mt29.write_unlock, NULL);
+  // mspi_transfer(octospi1, mt29.write_enable_polled, NULL);
 
   mspi_transfer(octospi1, mt29.page_load_SINGLE, &test_n_addr);
   // mspi_transfer_dma(octospi2, mt29.page_program, &test_n_addr);
@@ -97,16 +107,17 @@ rtems_task Init(rtems_task_argument ignored) {
     // throw error
   }
 
-  /* OCTOSPI TEST SECTION
    */
 
-  volatile bool test_heart_beat = 1;
-  time_t curr_time;
   // curr_time = time(NULL);
+  // HAL_I2C_Init(&hi2c1);
+  ov5640_configure_jpeg_qsxga();
+
   while (1) {
     // curr_time = time(NULL);
-    uart_write_buf(USART2, "play victory dance\n\r", 22);
-    // uart_write_byte(USART2, 0x01);
+    uart_write_buf(USART2, "qlay victory dance\n\r", 22);
+    // ov5640_configure_jpeg_qsxga();
+    //  uart_write_byte(USART2, 0x01);
     spin(1000);
   }
   exit(0);
