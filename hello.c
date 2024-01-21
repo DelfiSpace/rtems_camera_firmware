@@ -16,7 +16,6 @@
 #include <stm32l4r9_module_mspi_mt29.h>
 
 /* ST includes <begin> */
-#include "dcmi.h"
 #include "gpio.h"
 #include "i2c.h"
 #include "main.h"
@@ -24,18 +23,17 @@
 void SystemClock_Config(void);
 /* ST includes <end> */
 
-// Define testdata
-static uint32_t testdata[MT29_PAGE_W_SIZE];
-static uint32_t verificationdata[MT29_PAGE_W_SIZE];
-
-char dma_push_buffer[MT29_PAGE_SIZE];
-char dma_pull_buffer[MT29_PAGE_SIZE];
-
 rtems_task Init(rtems_task_argument ignored) {
-  // ------------ USART   INITIALIZATION  -------------------------------------
-  // clock_configure();
+  // ------------ SYTSTEM INITIALIZATION  -------------------------------------
   HAL_Init();
-  //    if current clock is not PLL
+
+  // XXX: make a general dma init. Init is useful when you have more sw elements
+  // that need to configure a peripheral, so that you have a place to safely
+  // reset
+  // DMA controller reset
+  RCC->AHB1RSTR |= RCC_AHB1RSTR_DMA1RST;
+  RCC->AHB1RSTR &= ~(RCC_AHB1RSTR_DMA1RST);
+
   if ((RCC->CFGR & RCC_CFGR_SWS_Msk) != 0b11 << RCC_CFGR_SWS_Pos) {
     SystemClock_Config();
   }
@@ -45,87 +43,22 @@ rtems_task Init(rtems_task_argument ignored) {
 
   enable_debug_clock();
 
-  // ------------ USART   INITIALIZATION  -------------------------------------
   uart_init(UART2, 9600);
 
-  // ------------ QUADSPI INITIALIZATION  -------------------------------------
-  // construct the mspi interface object
-  // TODO: define a constructor method
-  struct mspi_interface octospi1 = {0};
-  struct mspi_interface octospi2 = {0};
-  octospi1.interface_select = 0x01;
-  octospi2.interface_select = 0x02;
-
-  mspi_init(octospi1);
-  mspi_init(octospi2);
-  /*TODO: the device structure should really be constructed by initialization
-   * method */
-  struct mspi_device mt29 = mspi_device_constr();
-  //  --------------------------------------------------------------------------
-
-  void mspi_dmamux_cfg(void);
-
-  // mspi_dma_ch_init();
-  mspi_dmamux_cfg();
-
-  // patterning of testdata
-  for (uint32_t i = 0; i < MT29_PAGE_SIZE; i++) {
-    testdata[i] = i;
-  }
-
-  struct nand_addr test_n_addr = {0};
-  test_n_addr.block = 2;  // up to 2047
-  test_n_addr.page = 0;   // up to 63
-  test_n_addr.column = 0; // up to 4351
-
-  // copy data to the dma buffers
-  if (sizeof(testdata) == sizeof(dma_push_buffer)) {
-    memcpy(dma_push_buffer, testdata, sizeof(testdata));
-  } else {
-    // throw errori
-  }
-
-  /* OCTOSPI TEST SECTION
-  octospi1.data_ptr = &verificationdata[0];
-  octospi1.size_tr = MT29_PAGE_SIZE;
-
-  // disable write protection // does not do status verification
-  // mspi_transfer(octospi1, mt29.get_status, NULL);
-  // mspi_transfer(octospi2, mt29.get_status, NULL);
-  // mspi_transfer(octospi1, mt29.write_unlock, NULL);
-  // mspi_transfer(octospi1, mt29.write_enable_polled, NULL);
-
-  mspi_transfer(octospi1, mt29.page_load_SINGLE, &test_n_addr);
-  // mspi_transfer_dma(octospi2, mt29.page_program, &test_n_addr);
-  // mspi_transfer_dma(octospi2, mt29.page_read_from_nand, &test_n_addr);
-  mspi_transfer(octospi1, mt29.page_read_from_cache_SINGLE, &test_n_addr);
-
-  // copy data to the dma buffers
-  if (sizeof(verificationdata) == sizeof(dma_pull_buffer)) {
-    memcpy(verificationdata, dma_pull_buffer, sizeof(dma_pull_buffer));
-  } else {
-    // throw error
-  }
-
-   */
-
-  // curr_time = time(NULL);
-  // HAL_I2C_Init(&hi2c1);
   ov5640_configure_jpeg_qsxga();
+  dcmi_cfg_transfer();
+  dcmi_cfg_periph();
 
   while (1) {
-    // curr_time = time(NULL);
+    DCMI->CR |= DCMI_CR_CAPTURE;
     uart_write_buf(USART2, "qlay victory dance\n\r", 22);
-    // ov5640_configure_jpeg_qsxga();
-    //  uart_write_byte(USART2, 0x01);
     spin(1000);
   }
   exit(0);
 }
 
 void mspi_dmamux_cfg(void) {
-  /*Enable DMAMUX clock
-   */
+  /*Enable DMAMUX clock */
   RCC->AHB1ENR |= RCC_AHB1ENR_DMAMUX1EN;
 
   /*
