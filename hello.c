@@ -13,6 +13,7 @@
 #include <hal_uart.h>
 #include <stm32l4r9_module_clk_config.h>
 #include <stm32l4r9_module_dcmi.h>
+#include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_mspi_mt29.h>
 
 /* ST includes <begin> */
@@ -22,6 +23,12 @@
 
 void SystemClock_Config(void);
 /* ST includes <end> */
+
+static uint32_t testdata[MT29_PAGE_W_SIZE];
+static uint32_t verificationdata[MT29_PAGE_W_SIZE];
+
+/* global dmamux debug symbols */
+static u32 *sym_dmamux_channel1 = (u32 *)DMAMUX1_Channel1_BASE;
 
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
@@ -38,36 +45,77 @@ rtems_task Init(rtems_task_argument ignored) {
     SystemClock_Config();
   }
   MX_GPIO_Init();
-  // MX_DCMI_Init();
   MX_I2C1_Init();
 
   enable_debug_clock();
 
   uart_init(UART2, 9600);
 
-  ov5640_configure_jpeg_qsxga();
-  dcmi_cfg_transfer();
-  dcmi_cfg_periph();
+  ov5640_configure_jpeg_720p();
+  // ov5640_configure_color_square();
+  u32 *dcmi_dma_buffer = dcmi_cfg_transfer();
+
+  // spin(120000000);
+  // struct jpeg_image img = {0};
+  // dcmi_buffer_analisis(&img, dcmi_dma_buffer);
+
+  /* ---- TESTING NANDS -------------------------- */
+  // Define testdata
+
+  struct mspi_interface octospi1 = {0};
+  octospi1.interface_select = 0x01;
+  octospi1.data_ptr = &testdata[0];
+  // XXX: But actually what elements of context are used? remove the others
+
+  mspi_init(octospi1);
+
+  struct mspi_device mt29 = mspi_device_constr();
+
+  /* --- */
+
+  // patterning of testdata
+  for (uint32_t i = 0; i < MT29_PAGE_W_SIZE; i++) {
+    testdata[i] = i;
+  }
+
+  struct nand_addr test_n_addr = {0};
+  test_n_addr.block = 0;  // up to 2047
+  test_n_addr.page = 0;   // up to 63
+  test_n_addr.column = 0; // up to 4351 (4096)
+
+  // disable write protection // does not do status verification
+  mspi_transfer(octospi1, mt29.write_unlock, NULL); // NOTE: ok
+  mspi_transfer(octospi1, mt29.write_enable, NULL); // NOTE: ok
+  // XXX: The fact that the execution flow proceeded, means that
+  // the check for the mask of is faulty.. since it is not possible
+  // for the memories to reply with the wrong instruction.
+  // XXX: The check was disabled
+
+  /*
+  uint32_t octospi_status = 0;
+  mspi_transfer(octospi1, mt29.page_load_QUAD, &test_n_addr);
+
+  mspi_transfer(octospi1, mt29.page_program, &test_n_addr);
+  mspi_transfer(octospi1, mt29.get_status, &octospi_status);
+
+  mspi_transfer(octospi1, mt29.wait_oip, &test_n_addr);
+
+  octospi1.data_ptr = &verificationdata[0]; // emty the page cache to test read
+  mspi_transfer(octospi1, mt29.page_load_SINGLE, &test_n_addr);
+  */
+
+  mspi_transfer(octospi1, mt29.page_read_from_nand, &test_n_addr);
+  mspi_transfer(octospi1, mt29.wait_oip, &test_n_addr);
+
+  octospi1.data_ptr = &verificationdata[0];
+  mspi_transfer(octospi1, mt29.page_read_from_cache_QUAD, &test_n_addr);
+  /* --------------------------------------------- */
 
   while (1) {
-    DCMI->CR |= DCMI_CR_CAPTURE;
     uart_write_buf(USART2, "qlay victory dance\n\r", 22);
     spin(1000);
   }
   exit(0);
-}
-
-void mspi_dmamux_cfg(void) {
-  /*Enable DMAMUX clock */
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMAMUX1EN;
-
-  /*
-   * Configures the DMAMUX for the push and pull dma channels
-   * */
-  /* DMAMUX OCTOSPI1 to Push dma channel */
-  DMAMUX1_Channel0->CCR |= 40UL;
-  /* DMAMUX OCTOSPI1 to Pull dma channel */
-  DMAMUX1_Channel1->CCR |= 40UL;
 }
 
 void SystemClock_Config(void) {
