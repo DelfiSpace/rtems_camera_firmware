@@ -5,6 +5,8 @@
 source gdb.py
 svd_load STM32L4R9.svd 
 
+source gdb_load_img.py
+
 python
 import subprocess
 
@@ -36,3 +38,5 @@ else:
     print("Failed to obtain remote IP")
 
 end
+
+
