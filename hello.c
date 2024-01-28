@@ -14,12 +14,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <hal_uart.h>
 #include <stm32l4r9_module_clk_config.h>
 #include <stm32l4r9_module_dcmi.h>
 #include <stm32l4r9_module_i2c.h>
 #include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_mspi_mt29.h>
+#include <stm32l4r9_module_uart.h>
 
 /* ST includes <begin> */
 #include "gpio.h"
@@ -38,6 +38,9 @@
  * test interrupt dcmi transfer
  * create handler for writing dcma images
  * integrate a timer to measure... time betweeen events duh
+ *
+ * calibrate dcmi images
+ * create a better neovim configuration with dap
  */
 
 struct Node *hw_head = NULL;
@@ -45,14 +48,18 @@ struct Node *hw_head = NULL;
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
 
-  HAL_Init();          // TODO: remove, just for debugging
-  system_clock_init(); // TODO: remove, just for debugging
-  uart_init(UART2, 9600);
+  hwlist_require(&hw_head, &debug_uart_init, NULL);
+  hwlist_require(&hw_head, &dcmi_init, NULL);
 
-  hwlist_require(&hw_head, &i2c1_init, NULL);
-  hwlist_require(&hw_head, &sensor_clock_init, NULL);
+  /* set dcmi capture flag */
+  DCMI->CR |= DCMI_CR_CAPTURE;
 
-  hwlist_print_list(hw_head);
+  spin(12000000);
+
+  struct jpeg_image test_image;
+
+  u32 *image_buffer = dcmi_get_buffer();
+  dcmi_buffer_analisis(&test_image, image_buffer);
 
   while (1) {
     // uart_write_buf(USART2, "play victory dance\n\r", 22);
