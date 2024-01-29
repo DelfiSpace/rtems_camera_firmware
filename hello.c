@@ -29,15 +29,10 @@
 #include "hwlist_agent.h"
 
 /* TODO TABLE:
- * write initialization activation agent
- * add uart to initialization system (and create module)
- * test uart and init system working
- * add multispi to init system (no dma)
- * add dcmi to init system
- * add interrupt register and interrupt to dcmi system
- * test interrupt dcmi transfer
+ *
  * create handler for writing dcma images
  * integrate a timer to measure... time betweeen events duh
+ * fix loading the images in nand
  *
  * calibrate dcmi images
  * create a better neovim configuration with dap
@@ -45,33 +40,55 @@
 
 struct Node *hw_head = NULL;
 
+void DCMI_IRQHandler(void); // XXX:
+
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
 
+  // HAL_Init();
   hwlist_require(&hw_head, &debug_uart_init, NULL);
   hwlist_require(&hw_head, &dcmi_init, NULL);
+  hwlist_require(&hw_head, &mspi_init, NULL);
+  uart_write_buf(USART2, "play victory dance\n\r", 22); // XXX:
+
+  //* configures interrupts */
+  // sets handler pointer in vector table
+  __NVIC_SetVector(DCMI_IRQn, (u32)DCMI_IRQHandler);
+  // sets priority
+  NVIC_SetPriority(DCMI_IRQn, 0x5C);
+  // enable the DCMI interrupt
+  NVIC_EnableIRQ(DCMI_IRQn);
+
+  // enable dcmi vsync interrupt
+  DCMI->IER |= DCMI_IER_FRAME_IE;
+
+  // enable interrupts
+  __enable_irq();
 
   /* set dcmi capture flag */
   DCMI->CR |= DCMI_CR_CAPTURE;
-
-  spin(12000000);
-
-  struct jpeg_image test_image;
-
-  u32 *image_buffer = dcmi_get_buffer();
-  dcmi_buffer_analisis(&test_image, image_buffer);
 
   while (1) {
     // uart_write_buf(USART2, "play victory dance\n\r", 22);
   }
   exit(0);
 }
+void DCMI_IRQHandler(void) {
+  uart_write_buf(USART2, "received frame  \n\r", 20); // XXX:
+
+  struct jpeg_image test_image;
+  u32 *image_buffer = dcmi_get_buffer_ptr();
+  dcmi_buffer_analisis(&test_image, image_buffer);
+
+  /* clear at the end, to avoid overruns? or non issue due to priority?
+   * what happens if they have the same priority?
+   */
+  /* you need a multiple interrupt handler in case more sources are enabled */
+  DCMI->ICR &= ~(DCMI_ICR_FRAME_ISC_Msk);
+}
 
 void Error_Handler(void) {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1) {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
