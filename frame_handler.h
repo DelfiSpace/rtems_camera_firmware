@@ -18,6 +18,8 @@ rtems_status_code register_dcmi_frame_isr(void);
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
 
+#define MAX_N_STORABLE_FRAMES 100000
+
 struct dcmi_buffer_context {
   u8 *img_head_ptr;
   u8 *img_tail_ptr;
@@ -36,7 +38,18 @@ struct jpeg_image {
   struct nand_addr nand_addr[MAX_PAGES_IMAGE];
 };
 
+struct dcmi_isr_arg {
+  struct jpeg_image *image_storage_struct;
+  u32 last_image_index;
+};
+
 void dcmi_buffer_analisis(struct jpeg_image *, u32 *);
 u32 *dcmi_get_buffer_ptr(void);
 
-void imwrite_storagestatus_get(struct jpeg_image *);
+void get_image_storage_status(struct mspi_interface octospi,
+                              struct mspi_device mt29,
+                              struct jpeg_image *image_storage_struct);
+
+u32 find_last_image_index(struct jpeg_image *image_storage_struct);
+struct jpeg_image generate_image_structure(struct dcmi_isr_arg arg);
+struct nand_addr get_next_nand_addr(struct nand_addr addr);
