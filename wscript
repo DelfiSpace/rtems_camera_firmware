@@ -33,5 +33,6 @@ def build(bld):
     bld(features = 'c cprogram',
         target = 'camera_firmware.elf',
         cflags = '-g -O0 -mthumb -mfloat-abi=hard',
-        source = ['hello.c',
+        source = ['main.c',
+                  'frame_handler.c',
                   'init.c'])
