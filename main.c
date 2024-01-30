@@ -48,7 +48,7 @@ rtems_task Init(rtems_task_argument ignored) {
   hwlist_require(&hw_head, &debug_uart_init, NULL);
   hwlist_require(&hw_head, &dcmi_init, NULL);
   hwlist_require(&hw_head, &mspi_init, NULL);
-  uart_write_buf(USART2, "play victory dance\n\r", 22); // XXX:
+  uart_write_buf(USART2, "BSP initialization complete \n\r", 30);
 
   /* ---- APPLICATION INITIALIZATION START ---- */
   /* --- get octospi objects */
@@ -80,7 +80,6 @@ rtems_task Init(rtems_task_argument ignored) {
   DCMI->CR |= DCMI_CR_CAPTURE;
 
   while (1) {
-    // uart_write_buf(USART2, "play victory dance\n\r", 22);
   }
   exit(0);
 }

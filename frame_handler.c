@@ -1,13 +1,12 @@
 #include "frame_handler.h"
 #include "stm32l4r9_module_mspi_mt29.h"
 #include <stm32l4r9_module_mspi.h>
-
 const u32 image_struct_header[4] = {IMAGE_NAND_STR_HEAD};
 const u32 image_struct_closer[4] = {IMAGE_NAND_STR_HEAD};
 const u32 image_padding = 0x0;
 /**
  * --------------------------------------------------------------------------- *
- *       INTERRUPTS
+ *       INTERRUPT SERVICE ROUTINE
  * --------------------------------------------------------------------------- *
  */
 
@@ -104,7 +103,7 @@ rtems_isr DCMI_frame_isr_handler(void *void_args) {
 
 /**
  * --------------------------------------------------------------------------- *
- *       IMAGE STORAGE METHODS
+ *       IMAGE STORAGE HANDLING METHODS
  * --------------------------------------------------------------------------- *
  */
 
@@ -222,4 +221,36 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr) {
     }
   }
   return addr;
+}
+
+u32 retrieve_image(struct dcmi_isr_arg isr_ctx,
+                   struct jpeg_image *image_storage_struct) {
+  /*read image data from the nand pages and store it in a temporary buffer */
+
+  /*allocate stack temp buffer */
+  uint32_t tmp_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_BYTESIZE];
+  isr_ctx.mspi_interface.data_ptr = tmp_buffer;
+  /*copy in buffer all the pages content*/
+  for (int i = 0; i < image_storage_struct->num_pages; i++) {
+
+    mspi_transfer(isr_ctx.mspi_interface,
+                  isr_ctx.mspi_device.page_read_from_nand,
+                  &image_storage_struct->nand_addr[i]);
+
+    mspi_transfer(isr_ctx.mspi_interface, isr_ctx.mspi_device.wait_oip,
+                  &image_storage_struct->nand_addr[i]);
+
+    mspi_transfer(isr_ctx.mspi_interface,
+                  isr_ctx.mspi_device.page_read_from_cache_QUAD,
+                  &image_storage_struct->nand_addr[i]);
+    isr_ctx.mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
+  }
+
+  /* generate context for temporary buffer */
+  struct dcmi_buffer_context tmp_buffer_context = {
+      .buffer_head_ptr = tmp_buffer}; // beginning of the extended buffer
+  /*run buffer analyze to isolate the imagedata */
+  dcmi_buffer_analyze(&tmp_buffer_context);
+
+  /* TODO: add here stuff to do with the image in the temporary buffer */
 }
