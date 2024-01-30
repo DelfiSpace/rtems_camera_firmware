@@ -43,9 +43,9 @@ struct dcmi_isr_arg {
 
 /* isr prototypes */
 rtems_status_code register_dcmi_frame_isr(void);
-rtems_isr DCMI_frame_isr_handler(struct dcmi_isr_arg arg);
+rtems_isr DCMI_frame_isr_handler(void *arg);
 
-void dcmi_buffer_analisis(struct jpeg_image *, u32 *);
+void dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);
 u32 *dcmi_get_buffer_ptr(void);
 
 void get_image_storage_status(struct mspi_interface octospi,

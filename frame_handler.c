@@ -31,7 +31,8 @@ rtems_status_code register_dcmi_frame_isr(void) {
   return status;
 }
 /* ---- this is the function called as dcmi isr handler---- */
-struct jpeg_image DCMI_frame_isr_handler(struct dcmi_isr_arg arg) {
+rtems_isr DCMI_frame_isr_handler(void *void_args) {
+  struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
   uart_write_buf(USART2, "rtems interrupt received frame  \n\r", 34); // XXX:
   /* dcmi dma buffer from dcmi bsp module */
   extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_BYTESIZE];
@@ -52,7 +53,8 @@ struct jpeg_image DCMI_frame_isr_handler(struct dcmi_isr_arg arg) {
   /* get properties of the image in the buffer */
   dcmi_buffer_analyze(&dcmi_buffer_ctx);
 
-  struct jpeg_image image_ws = {.id = arg.last_image_index + 1, .timestamp = 0};
+  struct jpeg_image image_ws = {.id = args->last_image_index + 1,
+                                .timestamp = 0};
 
   /* determine the number of pages necessary to store the image*/
   struct jpeg_image image2write;
@@ -60,12 +62,13 @@ struct jpeg_image DCMI_frame_isr_handler(struct dcmi_isr_arg arg) {
 
   /* get first free page index */
   u32 last_image_page_index =
-      arg.image_storage_struct[arg.last_image_index].num_pages - 1;
+      args->image_storage_struct[args->last_image_index].num_pages - 1;
   //(from number of used pages to index)
 
   /* get last used address */
-  struct nand_addr last_addr = arg.image_storage_struct[arg.last_image_index]
-                                   .nand_addr[last_image_page_index];
+  struct nand_addr last_addr =
+      args->image_storage_struct[args->last_image_index]
+          .nand_addr[last_image_page_index];
 
   /* generate nand addresses for the used pages*/
   image2write.nand_addr[0] = get_next_nand_addr(last_addr);
@@ -82,16 +85,16 @@ struct jpeg_image DCMI_frame_isr_handler(struct dcmi_isr_arg arg) {
 
   /* write pages to the respective nand addressess */
   int i = 0;
-  arg.mspi_interface.data_ptr = (u32 *)overwrite_ptr;
+  args->mspi_interface.data_ptr = (u32 *)overwrite_ptr;
   while (overwrite_ptr < dcmi_buffer_ctx.img_tail_ptr) {
-    mspi_transfer(arg.mspi_interface, arg.mspi_device.page_load_QUAD,
+    mspi_transfer(args->mspi_interface, args->mspi_device.page_load_QUAD,
                   &image2write.nand_addr[i]);
-    mspi_transfer(arg.mspi_interface, arg.mspi_device.page_program,
+    mspi_transfer(args->mspi_interface, args->mspi_device.page_program,
                   &image2write.nand_addr[i]);
-    mspi_transfer(arg.mspi_interface, arg.mspi_device.wait_oip,
+    mspi_transfer(args->mspi_interface, args->mspi_device.wait_oip,
                   &image2write.nand_addr[i]);
 
-    arg.mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
+    args->mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
     i++;
   }
 
