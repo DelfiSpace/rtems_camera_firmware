@@ -27,6 +27,7 @@
 
 /* Application includes */
 #include "frame_handler.h"
+#include "test_nand_routines.h"
 
 /* TODO TABLE:
  * fix memories... be in a condition wher you can write and read consistently
@@ -40,6 +41,10 @@
  */
 
 struct Node *hw_head = NULL; // TODO: move to the bsp
+
+static struct jpeg_image image_storage_registry[MAX_N_STORABLE_FRAMES];
+/* FIX: rework the memory read system */
+/* FIX: rework the memory system so that page 0 of block 0 is not used */
 
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
@@ -56,7 +61,6 @@ rtems_task Init(rtems_task_argument ignored) {
   struct mspi_device mt29 = mspi_device_constr();
 
   /* --- dcmi memory system initialization */
-  struct jpeg_image image_storage_registry[MAX_N_STORABLE_FRAMES];
 
   /* read the memory and get context */
   get_image_storage_status(octospi1, mt29, image_storage_registry);
@@ -77,7 +81,9 @@ rtems_task Init(rtems_task_argument ignored) {
 
   /* ---- APPLICATION INITIALIZATION START ---- */
   /* set dcmi capture flag */
-  DCMI->CR |= DCMI_CR_CAPTURE;
+  // DCMI->CR |= DCMI_CR_CAPTURE;
+
+  nand_test_routine();
 
   while (1) {
   }

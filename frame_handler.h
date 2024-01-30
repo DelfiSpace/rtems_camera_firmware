@@ -14,7 +14,12 @@
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
 
-#define MAX_N_STORABLE_FRAMES 100000
+/* this was wayy to much to fit in ram
+ * -> do a report of the initial implementaton and than the following
+ *  solution
+ *  XXX: Important fot the thesis
+ */
+#define MAX_N_STORABLE_FRAMES 1
 
 struct dcmi_buffer_context {
   u8 *img_head_ptr;

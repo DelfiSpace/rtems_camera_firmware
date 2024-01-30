@@ -1,6 +1,7 @@
 #include "frame_handler.h"
 #include "stm32l4r9_module_mspi_mt29.h"
 #include <stm32l4r9_module_mspi.h>
+
 const u32 image_struct_header[4] = {IMAGE_NAND_STR_HEAD};
 const u32 image_struct_closer[4] = {IMAGE_NAND_STR_HEAD};
 const u32 image_padding = 0x0;
@@ -228,7 +229,13 @@ u32 retrieve_image(struct dcmi_isr_arg isr_ctx,
   /*read image data from the nand pages and store it in a temporary buffer */
 
   /*allocate stack temp buffer */
-  uint32_t tmp_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_BYTESIZE];
+  /* this is terminally huge in stack.... and is allocated even if the fun is
+   * not used */
+  /* therefore the dma buffer is used */
+  /* CAUTION: the function will clear the dma buffer and shall be used only when
+   * acquisition has been completed */
+  extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_BYTESIZE];
+  uint32_t *tmp_buffer = dcmi_dma_buffer;
   isr_ctx.mspi_interface.data_ptr = tmp_buffer;
   /*copy in buffer all the pages content*/
   for (int i = 0; i < image_storage_struct->num_pages; i++) {
