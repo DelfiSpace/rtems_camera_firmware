@@ -64,7 +64,9 @@ rtems_task Init(rtems_task_argument ignored) {
 
   struct dcmi_isr_arg DCMI_frame_isr_arguments = {
       .image_storage_struct = image_storage_registry,
-      .last_image_index = last_image_index};
+      .last_image_index = last_image_index,
+      .mspi_interface = octospi1,
+      .mspi_device = mt29};
 
   /* --- isr initialization */
   rtems_status_code ir_rs = {0};

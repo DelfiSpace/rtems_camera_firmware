@@ -9,10 +9,6 @@
 #include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_uart.h>
 
-/* isr prototypes */
-rtems_isr DCMI_frame_isr_handler(rtems_vector_number vector);
-rtems_status_code register_dcmi_frame_isr(void);
-
 #define MAX_PAGES_IMAGE 10
 
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
@@ -41,7 +37,13 @@ struct jpeg_image {
 struct dcmi_isr_arg {
   struct jpeg_image *image_storage_struct;
   u32 last_image_index;
+  struct mspi_interface mspi_interface;
+  struct mspi_device mspi_device;
 };
+
+/* isr prototypes */
+rtems_status_code register_dcmi_frame_isr(void);
+rtems_isr DCMI_frame_isr_handler(struct dcmi_isr_arg arg);
 
 void dcmi_buffer_analisis(struct jpeg_image *, u32 *);
 u32 *dcmi_get_buffer_ptr(void);
@@ -51,5 +53,4 @@ void get_image_storage_status(struct mspi_interface octospi,
                               struct jpeg_image *image_storage_struct);
 
 u32 find_last_image_index(struct jpeg_image *image_storage_struct);
-struct jpeg_image generate_image_structure(struct dcmi_isr_arg arg);
 struct nand_addr get_next_nand_addr(struct nand_addr addr);

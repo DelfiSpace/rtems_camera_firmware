@@ -30,20 +30,72 @@ rtems_status_code register_dcmi_frame_isr(void) {
       );
   return status;
 }
-
-// Implementation of the ISR
-rtems_isr DCMI_frame_isr_handler(rtems_vector_number vector) {
+/* ---- this is the function called as dcmi isr handler---- */
+struct jpeg_image DCMI_frame_isr_handler(struct dcmi_isr_arg arg) {
   uart_write_buf(USART2, "rtems interrupt received frame  \n\r", 34); // XXX:
+  /* dcmi dma buffer from dcmi bsp module */
+  extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_BYTESIZE];
+  /* the size of the dma buffer must be larger by at least str_s
+   * this is becouse when the image head is in the first bytes of the memory,
+   * you will overwrite a memory space that would be before the strict buffer */
 
-  /* write test buffer to the memory */
-  struct nand_addr test_n_addr = {0};
-  test_n_addr.block = 0;  // up to 2047
-  test_n_addr.page = 0;   // up to 63
-  test_n_addr.column = 0; // up to 4351 (4096)
+  // FIX: no now what you consider the start of the buffer in the
+  // dcmi_buffer_ctx:
+  // - It is the start of the actual dcmi dma buffer (so the memory managed by
+  // the dma channel)
+  // - It needs to be derived from the pointer of the buffer by adding the size
+  // of the prebuffer (IMG_METADATA_MAX_BYTESIZE)
 
-  /* TODO: add here data handling procedure */
+  struct dcmi_buffer_context dcmi_buffer_ctx = {
+      .buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_BYTESIZE};
 
-  /* read buffer from memory */
+  /* get properties of the image in the buffer */
+  dcmi_buffer_analyze(&dcmi_buffer_ctx);
+
+  struct jpeg_image image_ws = {.id = arg.last_image_index + 1, .timestamp = 0};
+
+  /* determine the number of pages necessary to store the image*/
+  struct jpeg_image image2write;
+  image2write.num_pages = dcmi_buffer_ctx.img_size / MT29_PAGE_SIZE + 1;
+
+  /* get first free page index */
+  u32 last_image_page_index =
+      arg.image_storage_struct[arg.last_image_index].num_pages - 1;
+  //(from number of used pages to index)
+
+  /* get last used address */
+  struct nand_addr last_addr = arg.image_storage_struct[arg.last_image_index]
+                                   .nand_addr[last_image_page_index];
+
+  /* generate nand addresses for the used pages*/
+  image2write.nand_addr[0] = get_next_nand_addr(last_addr);
+  for (int i = 1; i < image2write.num_pages; i++) {
+    image2write.nand_addr[i] = get_next_nand_addr(image2write.nand_addr[i - 1]);
+  }
+  // FIX: add error/waring in case pages would be more than MAX_PAGES_IMAGE
+  // FIX: a routine to handle errors must be implemented
+
+  size_t str_s = sizeof(image2write);
+  u8 *overwrite_ptr = dcmi_buffer_ctx.img_head_ptr - str_s;
+  /* overwrite the dcmi_nand buffer with the structure information */
+  memcpy(overwrite_ptr, &image2write, str_s);
+
+  /* write pages to the respective nand addressess */
+  int i = 0;
+  arg.mspi_interface.data_ptr = (u32 *)overwrite_ptr;
+  while (overwrite_ptr < dcmi_buffer_ctx.img_tail_ptr) {
+    mspi_transfer(arg.mspi_interface, arg.mspi_device.page_load_QUAD,
+                  &image2write.nand_addr[i]);
+    mspi_transfer(arg.mspi_interface, arg.mspi_device.page_program,
+                  &image2write.nand_addr[i]);
+    mspi_transfer(arg.mspi_interface, arg.mspi_device.wait_oip,
+                  &image2write.nand_addr[i]);
+
+    arg.mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
+    i++;
+  }
+
+  /* resets peripheral interrupt */
   DCMI->ICR &= ~(DCMI_ICR_FRAME_ISC_Msk);
 }
 
@@ -157,49 +209,6 @@ void dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
   dcmi_buffer_ctx->img_size = img_size;
 }
 
-/* ---- this is the function called as dcmi isr handler---- */
-struct jpeg_image generate_image_structure(struct dcmi_isr_arg arg) {
-
-  /* dcmi dma buffer from dcmi bsp module */
-  extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE];
-
-  struct dcmi_buffer_context dcmi_buffer_ctx = {.buffer_head_ptr =
-                                                    dcmi_dma_buffer};
-
-  /* get properties of the image in the buffer */
-  dcmi_buffer_analyze(&dcmi_buffer_ctx);
-
-  struct jpeg_image image_ws = {.id = arg.last_image_index + 1, .timestamp = 0};
-
-  /* determine the number of pages necessary to store the image*/
-  struct jpeg_image image2write;
-  image2write.num_pages = dcmi_buffer_ctx.img_size / MT29_PAGE_SIZE + 1;
-
-  /* get first free page index */
-  u32 last_image_page_index =
-      arg.image_storage_struct[arg.last_image_index].num_pages - 1;
-  //(from number of used pages to index)
-
-  /* get last used address */
-  struct nand_addr last_addr = arg.image_storage_struct[arg.last_image_index]
-                                   .nand_addr[last_image_page_index];
-
-  /* generate nand addresses for the used pages*/
-  image2write.nand_addr[0] = get_next_nand_addr(last_addr);
-  for (int i = 1; i < image2write.num_pages; i++) {
-    image2write.nand_addr[i] = get_next_nand_addr(image2write.nand_addr[i - 1]);
-  }
-  // FIX: add error/waring in case pages would be more than MAX_PAGES_IMAGE
-
-  /* overwrite the dcmi_nand buffer with the structure information */
-
-  /* prepare the pointer to pass to the nand write fuction */
-
-  /* write pages to the respective nand addressess */
-
-  /* profit */
-}
-
 struct nand_addr get_next_nand_addr(struct nand_addr addr) {
   addr.page++;
   if (addr.page == MT29_MAX_PAGEn) {
@@ -211,51 +220,3 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr) {
   }
   return addr;
 }
-#ifdef IGNORE
-
-void nand_write(struct jpeg_image, u8 *head_ptr, u32 num);
-void image_allocate(void);
-
-void image_allocate(void) {
-  /* analyzes the buffer to find the relevant data pointers
-   * fills the image structure with the nand organization information
-   */
-}
-
-/* NOTE: you need to generate a structure that contains the image and write
- * all the structure to the memory in an agnostic way
- */
-
-void image_write(struct jpeg_image img, u8 *head_ptr, u32 num) {
-  /* num is the number of bytes to be transferred */
-  struct mspi_device mt29 = mspi_device_constr();
-  u8 *tail_ptr = head_ptr + num;
-
-  struct mspi_interface octospi1;
-  octospi1.interface_select = 0x01;
-
-  octospi1.data_ptr = (u32 *)head_ptr;
-
-  while (head_ptr + MT29_PAGE_SIZE < tail_ptr) {
-    // TODO: set data pointer to head_ptr in device_context
-    mspi_transfer(octospi1, mt29.page_load_QUAD, nand_address);
-    head_ptr = head_ptr + MT29_PAGE_W_SIZE;
-  }
-  /* add zeros to the buffer, intentional buffer overrite */
-  memset(head_ptr, 0x0, tail_ptr - head_ptr);
-  /* perform last transfer */
-  mspi_transfer(octospi1, mt29.page_load_QUAD, nand_address);
-}
-
-/* you can define a priori the addressess that you need to write to
- *
- * i think this is application code, therefore it does not need to support
- * generalities
- *
- * Lets generate the device context in the
- *
- * you can
- * */
-
-#endif /* ifdef IGNORE                                                         \
-        */
