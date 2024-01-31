@@ -40,6 +40,8 @@ rtems_isr DCMI_frame_isr_handler(void *void_args) {
    * this is becouse when the image head is in the first bytes of the memory,
    * you will overwrite a memory space that would be before the strict buffer */
 
+#ifdef SKIP
+
   // FIX: no now what you consider the start of the buffer in the
   // dcmi_buffer_ctx:
   // - It is the start of the actual dcmi dma buffer (so the memory managed by
@@ -97,6 +99,7 @@ rtems_isr DCMI_frame_isr_handler(void *void_args) {
     args->mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
     i++;
   }
+#endif /* ifndef SKIP */
 
   /* resets peripheral interrupt */
   DCMI->ICR &= ~(DCMI_ICR_FRAME_ISC_Msk);

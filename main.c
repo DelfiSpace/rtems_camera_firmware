@@ -81,9 +81,9 @@ rtems_task Init(rtems_task_argument ignored) {
 
   /* ---- APPLICATION INITIALIZATION START ---- */
   /* set dcmi capture flag */
-  // DCMI->CR |= DCMI_CR_CAPTURE;
+  DCMI->CR |= DCMI_CR_CAPTURE;
 
-  nand_test_routine();
+  // nand_test_routine();
 
   while (1) {
   }
@@ -91,7 +91,7 @@ rtems_task Init(rtems_task_argument ignored) {
 }
 
 void Error_Handler(void) {
-  __disable_irq();
+  //__disable_irq();
   while (1) {
   }
 }
