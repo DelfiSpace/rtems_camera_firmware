@@ -9,7 +9,7 @@
 #include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_uart.h>
 
-#define MAX_PAGES_IMAGE 10
+#define MAX_PAGES_IMAGE 20
 
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
@@ -48,9 +48,10 @@ struct dcmi_isr_arg {
 
 /* isr prototypes */
 rtems_status_code register_dcmi_frame_isr(void);
-rtems_isr DCMI_frame_isr_handler(void *arg);
+rtems_isr DCMI_frame_isr(void *arg);
+rtems_task DCMI_frame_handler(rtems_task_argument argument);
 
-void dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);
+u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);
 u32 *dcmi_get_buffer_ptr(void);
 
 void get_image_storage_status(struct mspi_interface octospi,

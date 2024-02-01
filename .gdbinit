@@ -36,7 +36,6 @@ if py_remote_ip:
     gdb.execute("load " + str(elf2debug))
 else:
     print("Failed to obtain remote IP")
-
 end
 
 

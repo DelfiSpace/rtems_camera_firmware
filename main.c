@@ -27,7 +27,7 @@
 
 /* Application includes */
 #include "frame_handler.h"
-#include "test_nand_routines.h"
+// #include "test_nand_routines.h"
 
 /* TODO TABLE:
  * fix memories... be in a condition wher you can write and read consistently
@@ -40,20 +40,34 @@
  * create a better neovim configuration with dap
  */
 
-struct Node *hw_head = NULL; // TODO: move to the bsp
+volatile struct jpeg_image last_image;
+/* WARN: rework the memory read system */
+/* WARN: rework the memory system so that page 0 of block 0 is not used */
 
-static struct jpeg_image image_storage_registry[MAX_N_STORABLE_FRAMES];
-/* FIX: rework the memory read system */
-/* FIX: rework the memory system so that page 0 of block 0 is not used */
+rtems_id fa_semaphore_id; // frame available
+
+static u8 go = {0};
+
+/*FIX: ADD HAL UART INITIALIZATION (IF NEEDED IDK)*/
 
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
 
-  // HAL_Init();
   hwlist_require(&hw_head, &debug_uart_init, NULL);
   hwlist_require(&hw_head, &dcmi_init, NULL);
   hwlist_require(&hw_head, &mspi_init, NULL);
   uart_write_buf(USART2, "BSP initialization complete \n\r", 30);
+
+  /* allows to proceed only when a debugger is attached */
+  /*
+  while (go == 0) {
+    uart_write_buf(USART2, ".", 1);
+    uart_write_buf(USART2, ".", 1);
+    uart_write_buf(USART2, ".", 1);
+    uart_write_buf(USART2, "\n\r", 2);
+    spin(12000000);
+  }
+  */
 
   /* ---- APPLICATION INITIALIZATION START ---- */
   /* --- get octospi objects */
@@ -63,31 +77,58 @@ rtems_task Init(rtems_task_argument ignored) {
   /* --- dcmi memory system initialization */
 
   /* read the memory and get context */
-  get_image_storage_status(octospi1, mt29, image_storage_registry);
-  u32 last_image_index = find_last_image_index(image_storage_registry);
+  get_image_storage_status(octospi1, mt29, &last_image);
 
-  struct dcmi_isr_arg DCMI_frame_isr_arguments = {
-      .image_storage_struct = image_storage_registry,
-      .last_image_index = last_image_index,
-      .mspi_interface = octospi1,
-      .mspi_device = mt29};
+  struct dcmi_isr_arg DCMI_frame_isr_arguments = {.image_storage_struct =
+                                                      &last_image,
+                                                  .mspi_interface = octospi1,
+                                                  .mspi_device = mt29};
 
-  /* --- isr initialization */
-  rtems_status_code ir_rs = {0};
-  ir_rs = register_dcmi_frame_isr();
+  /* ---- TEST EXECUTION ---------------------- */
 
-  /* enable dcmi vsync interrupt */
-  DCMI->IER |= DCMI_IER_FRAME_IE;
+  /* ---- TEST EXECUTION ---------------------- */
+  // Create binary semaphore
+  rtems_status_code status_s_create;
+  status_s_create = rtems_semaphore_create(
+      rtems_build_name('S', 'E', 'M', '1'),
+      0, // Initial count
+      RTEMS_BINARY_SEMAPHORE | RTEMS_PRIORITY | RTEMS_INHERIT_PRIORITY, 0,
+      &fa_semaphore_id);
+
+  /* ---- TASK DEFINITION --------------------- */
+  rtems_id tid;
+  rtems_status_code status;
+  rtems_name frame_task_name;
+  frame_task_name = rtems_build_name('F', 'R', 'M', '1');
 
   /* ---- APPLICATION INITIALIZATION START ---- */
-  /* set dcmi capture flag */
-  DCMI->CR |= DCMI_CR_CAPTURE;
 
-  // nand_test_routine();
+  status = rtems_task_create(frame_task_name, 1, RTEMS_MINIMUM_STACK_SIZE,
+                             RTEMS_NO_PREEMPT, RTEMS_FLOATING_POINT, &tid);
 
-  while (1) {
+  if (status != RTEMS_SUCCESSFUL) {
+    uart_write_buf(USART2, "task create failed............. \n\r", 34); //
+    // XXX:
+    exit(1);
   }
-  exit(0);
+
+  status = rtems_task_start(tid, DCMI_frame_handler, 0);
+
+  if (status != RTEMS_SUCCESSFUL) {
+    uart_write_buf(USART2, "task start failed.............. \n\r", 34); //
+    // XXX:
+    exit(1);
+  }
+  uart_write_buf(USART2, "task init continue............. \n\r", 34); // XXX:
+
+  status = rtems_task_delete(RTEMS_SELF); /* should not return */
+
+  uart_write_buf(USART2, "task delete failed............. \n\r", 34); // XXX:
+  exit(1);
+#ifdef TASK
+#endif
+  while (1) {
+  };
 }
 
 void Error_Handler(void) {
