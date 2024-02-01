@@ -39,20 +39,22 @@ rtems_status_code register_dcmi_frame_isr(void) {
 }
 
 /* ---- this is the function called as dcmi isr handler---- */
-#define DCMI_POLLING
+// #define DCMI_POLLING
 
 rtems_isr DCMI_frame_isr(void *void_args) {
-  uart_write_buf(USART2, "f\n\r", 3); // XXX:
+  uart_write_buf(USART2, "trigger frame isr      \n\r", 25); // XXX:
 #ifndef DCMI_POLLING
-  rtems_status_code status_s_release;
+  volatile rtems_status_code status_s_release;
   status_s_release = rtems_semaphore_release(fa_semaphore_id);
+  if (status_s_release != RTEMS_SUCCESSFUL) {
+    uart_write_buf(USART2, "sem release unsuccessful\n\r", 25); // XXX:
+  }
+
 #endif /* DCMI_POLLING */
   DCMI->ICR |= DCMI_ICR_FRAME_ISC_Msk;
 }
 
 rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
-
-  uart_write_buf(USART2, "rtems starting frame handler t. \n\r", 34); // XXX:
 
   volatile rtems_status_code status_s_acquire;
   volatile rtems_status_code ir_rs = {0};
@@ -68,8 +70,9 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     /* acquire the semaphore */
     status_s_acquire =
         rtems_semaphore_obtain(fa_semaphore_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
-    uart_write_buf(USART2, "handling the frame.....         \n\r", 34); // XXX:
-#endif /* DCMI_POLLING */
+    uart_write_buf(USART2, "handling the frame.....         \n\r",
+                   34); // XXX:
+#endif                  /* DCMI_POLLING */
 
 #ifdef DCMI_POLLING
     /* enable dcmi vsync interrupt */
@@ -85,8 +88,9 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
     /* dcmi dma buffer from dcmi bsp module */
     /* the size of the dma buffer must be larger by at least str_s
-     * this is becouse when the image head is in the first bytes of the memory,
-     * you will overwrite a memory space that would be before the strict buffer
+     * this is becouse when the image head is in the first bytes of the
+     * memory, you will overwrite a memory space that would be before the
+     * strict buffer
      */
 
     extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
@@ -156,14 +160,17 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       }
     }
     /* resets peripheral interrupt */
-    uart_write_buf(USART2, "reser frame handler             \n\r", 34); // XXX:
+    uart_write_buf(USART2, "reser frame handler             \n\r",
+                   34); // XXX:
+                        //
   }
 }
 
 /**
- * --------------------------------------------------------------------------- *
- *       IMAGE STORAGE HANDLING METHODS
- * --------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------
+ * * IMAGE STORAGE HANDLING METHODS
+ * ---------------------------------------------------------------------------
+ * *
  */
 
 // WARNING: to be tested
@@ -214,9 +221,9 @@ void get_image_storage_status(struct mspi_interface octospi,
   }
 }
 
-// FIX: you need to explore the buffer in a circular manner, becouse otherwhise
-// you would always find only the first image, but expecially in jpeg there are
-// going to be more
+// FIX: you need to explore the buffer in a circular manner, becouse
+// otherwhise you would always find only the first image, but expecially in
+// jpeg there are going to be more
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
   /*
    * data_ptr is the start of the buffer.
@@ -274,8 +281,8 @@ u32 retrieve_image(struct dcmi_isr_arg isr_ctx,
   /* this is terminally huge in stack.... and is allocated even if the fun is
    * not used */
   /* therefore the dma buffer is used */
-  /* CAUTION: the function will clear the dma buffer and shall be used only when
-   * acquisition has been completed */
+  /* CAUTION: the function will clear the dma buffer and shall be used only
+   * when acquisition has been completed */
   extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
   uint32_t *tmp_buffer = dcmi_dma_buffer;
   isr_ctx.mspi_interface.data_ptr = tmp_buffer;
