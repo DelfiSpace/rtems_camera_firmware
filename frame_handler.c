@@ -1,6 +1,8 @@
 #include "frame_handler.h"
 #include "stm32l4r9_module_mspi_mt29.h"
+#include <rtems/rtems/event.h>
 #include <stm32l4r9_module_mspi.h>
+#include <string.h>
 
 const u32 image_struct_header[4] = {IMAGE_NAND_STR_HEAD};
 const u32 image_struct_closer[4] = {IMAGE_NAND_STR_HEAD};
@@ -8,9 +10,11 @@ const u32 image_padding = 0x0;
 
 #define RESET_BLOCK 1
 #define RESET_PAGE 0
+// #define PROGRAMG_NAND
 
 // Define semaphore
-extern rtems_id fa_semaphore_id; // frame available
+#define FRAME_EVENT RTEMS_EVENT_0
+extern rtems_id frame_handler_tid;
 
 /**
  * --------------------------------------------------------------------------- *
@@ -45,7 +49,7 @@ rtems_isr DCMI_frame_isr(void *void_args) {
   uart_write_buf(USART2, "trigger frame isr      \n\r", 25); // XXX:
 #ifndef DCMI_POLLING
   volatile rtems_status_code status_s_release;
-  status_s_release = rtems_semaphore_release(fa_semaphore_id);
+  status_s_release = rtems_event_send(frame_handler_tid, FRAME_EVENT);
   if (status_s_release != RTEMS_SUCCESSFUL) {
     uart_write_buf(USART2, "sem release unsuccessful\n\r", 25); // XXX:
   }
@@ -56,9 +60,6 @@ rtems_isr DCMI_frame_isr(void *void_args) {
 
 rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
 
-  volatile rtems_status_code status_s_acquire;
-  volatile rtems_status_code ir_rs = {0};
-  ir_rs = register_dcmi_frame_isr();
   while (1) {
 
 #ifndef DCMI_POLLING
@@ -68,11 +69,13 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     /* set dcmi capture flag */
     DCMI->CR |= DCMI_CR_CAPTURE;
     /* acquire the semaphore */
-    status_s_acquire =
-        rtems_semaphore_obtain(fa_semaphore_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
-    uart_write_buf(USART2, "handling the frame.....         \n\r",
-                   34); // XXX:
-#endif                  /* DCMI_POLLING */
+    rtems_event_set frame_event_s;
+    volatile rtems_status_code status_s_acquire;
+    status_s_acquire = rtems_event_receive(FRAME_EVENT, RTEMS_WAIT,
+                                           RTEMS_NO_TIMEOUT, &frame_event_s);
+    uart_write_buf(USART2, "handling the frame!!!!!         \n\r", 34);
+
+#endif /* DCMI_POLLING */
 
 #ifdef DCMI_POLLING
     /* enable dcmi vsync interrupt */
@@ -85,7 +88,7 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     }
 #endif /* DCMI_POLLING */
 
-    struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
+    volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
     /* dcmi dma buffer from dcmi bsp module */
     /* the size of the dma buffer must be larger by at least str_s
      * this is becouse when the image head is in the first bytes of the
@@ -134,9 +137,20 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       /* generate nand addresses for the used pages*/
       image2write.nand_addr[0] = get_next_nand_addr(last_addr);
 
+      char temp_str[50]; // XXX: debug
       for (int i = 1; i < image2write.num_pages; i++) {
         image2write.nand_addr[i] =
             get_next_nand_addr(image2write.nand_addr[i - 1]);
+        /*
+         * (debug) Print the addresses:
+         */
+        int n;
+        n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
+                    image2write.nand_addr[i].block,
+                    image2write.nand_addr[i].page);
+        uart_write_buf(USART2, temp_str, n);
+        /*
+         */
       }
 
       size_t str_s = sizeof(image2write);
@@ -147,22 +161,32 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       /* write pages to the respective nand addressess */
       int i = 0;
       args->mspi_interface.data_ptr = (u32 *)overwrite_ptr;
-      while (overwrite_ptr < dcmi_buffer_ctx.img_tail_ptr) {
+#ifdef PROGRAMG_NAND
+      mspi_transfer(args->mspi_interface, args->mspi_device.write_unlock, NULL);
+#endif
+      while (args->mspi_interface.data_ptr <
+             (u32 *)dcmi_buffer_ctx.img_tail_ptr) {
+#ifdef PROGRAMG_NAND
+        mspi_transfer(args->mspi_interface, args->mspi_device.write_enable,
+                      NULL);
         mspi_transfer(args->mspi_interface, args->mspi_device.page_load_QUAD,
                       &image2write.nand_addr[i]);
         mspi_transfer(args->mspi_interface, args->mspi_device.page_program,
                       &image2write.nand_addr[i]);
         mspi_transfer(args->mspi_interface, args->mspi_device.wait_oip,
                       &image2write.nand_addr[i]);
+#endif
+        /* NOTE: if you have time in the cycle add a readback to ensure that
+         * data in memory is ok */
 
         args->mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
+        // you are not overwriting the
         i++;
       }
     }
     /* resets peripheral interrupt */
     uart_write_buf(USART2, "reser frame handler             \n\r",
                    34); // XXX:
-                        //
   }
 }
 
@@ -186,9 +210,9 @@ void get_image_storage_status(struct mspi_interface octospi,
 
   size_t str_s = sizeof(*image_storage_struct);
 
-  int i = 0;
+  int i = 1; // initial block is 1
   int j = 0;
-  u32 found_image_n = 0;
+  volatile u32 found_image_n = 0;
 
   for (; i < MT29_MAX_BLOCKn; i++) {
     for (; j < MT29_MAX_PAGEn; j++) {
@@ -202,6 +226,8 @@ void get_image_storage_status(struct mspi_interface octospi,
 
       octospi.data_ptr = &page_buffer[0];
       mspi_transfer(octospi, mt29.page_read_from_cache_QUAD, &page_nand_addr);
+      /* you need a bigger, circular buffer, use the same used for the dma
+       * transfer */
 
       int k = 0;
       for (; k < MT29_PAGE_W_SIZE; k++) {
@@ -219,6 +245,7 @@ void get_image_storage_status(struct mspi_interface octospi,
       }
     }
   }
+  /* XXX: before exiting clear the dcmi_dma_buffer*/
 }
 
 // FIX: you need to explore the buffer in a circular manner, becouse

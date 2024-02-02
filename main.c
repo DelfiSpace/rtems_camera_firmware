@@ -4,6 +4,7 @@
 
 #include <rtems.h>
 #include <rtems/irq.h>
+#include <rtems/rtems/tasks.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stm32l4r9xx.h>
@@ -29,26 +30,9 @@
 #include "frame_handler.h"
 // #include "test_nand_routines.h"
 
-/* TODO TABLE:
- * fix memories... be in a condition wher you can write and read consistently
- *
- * create handler for writing dcma images
- * integrate a timer to measure... time betweeen events duh
- * fix loading the images in nand
- *
- * calibrate dcmi images
- * create a better neovim configuration with dap
- */
+volatile struct jpeg_image last_image; // TODO: remove from here.
 
-volatile struct jpeg_image last_image;
-/* WARN: rework the memory read system */
-/* WARN: rework the memory system so that page 0 of block 0 is not used */
-
-rtems_id fa_semaphore_id; // frame available
-
-static u8 go = {0};
-
-/*FIX: ADD HAL UART INITIALIZATION (IF NEEDED IDK)*/
+rtems_id frame_handler_tid;
 
 rtems_task Init(rtems_task_argument ignored) {
   // ------------ SYTSTEM INITIALIZATION  -------------------------------------
@@ -57,17 +41,6 @@ rtems_task Init(rtems_task_argument ignored) {
   hwlist_require(&hw_head, &dcmi_init, NULL);
   hwlist_require(&hw_head, &mspi_init, NULL);
   uart_write_buf(USART2, "BSP initialization complete \n\r", 30);
-
-  /* allows to proceed only when a debugger is attached */
-  /*
-  while (go == 0) {
-    uart_write_buf(USART2, ".", 1);
-    uart_write_buf(USART2, ".", 1);
-    uart_write_buf(USART2, ".", 1);
-    uart_write_buf(USART2, "\n\r", 2);
-    spin(12000000);
-  }
-  */
 
   /* ---- APPLICATION INITIALIZATION START ---- */
   /* --- get octospi objects */
@@ -79,24 +52,22 @@ rtems_task Init(rtems_task_argument ignored) {
   /* read the memory and get context */
   get_image_storage_status(octospi1, mt29, &last_image);
 
-  struct dcmi_isr_arg DCMI_frame_isr_arguments = {.image_storage_struct =
-                                                      &last_image,
-                                                  .mspi_interface = octospi1,
-                                                  .mspi_device = mt29};
+  struct dcmi_isr_arg DCMI_frame_task_arguments = {.image_storage_struct =
+                                                       &last_image,
+                                                   .mspi_interface = octospi1,
+                                                   .mspi_device = mt29};
+
+  volatile rtems_status_code ir_rs = {0};
+  ir_rs = register_dcmi_frame_isr();
+  if (ir_rs != RTEMS_SUCCESSFUL) {
+    uart_write_buf(USART2, "unable to register isr  \n\r", 25);
+  }
 
   /* ---- TEST EXECUTION ---------------------- */
 
   /* ---- TEST EXECUTION ---------------------- */
-  // Create binary semaphore
-  rtems_status_code status_s_create;
-  status_s_create = rtems_semaphore_create(
-      rtems_build_name('S', 'E', 'M', '1'),
-      0, // Initial count
-      RTEMS_BINARY_SEMAPHORE | RTEMS_PRIORITY | RTEMS_INHERIT_PRIORITY, 0,
-      &fa_semaphore_id);
 
   /* ---- TASK DEFINITION --------------------- */
-  rtems_id tid;
   rtems_status_code status;
   rtems_name frame_task_name;
   frame_task_name = rtems_build_name('F', 'R', 'M', '1');
@@ -104,7 +75,8 @@ rtems_task Init(rtems_task_argument ignored) {
   /* ---- APPLICATION INITIALIZATION START ---- */
 
   status = rtems_task_create(frame_task_name, 1, RTEMS_MINIMUM_STACK_SIZE,
-                             RTEMS_NO_PREEMPT, RTEMS_FLOATING_POINT, &tid);
+                             RTEMS_NO_PREEMPT, RTEMS_FLOATING_POINT,
+                             &frame_handler_tid);
 
   if (status != RTEMS_SUCCESSFUL) {
     uart_write_buf(USART2, "task create failed............. \n\r", 34); //
@@ -112,7 +84,8 @@ rtems_task Init(rtems_task_argument ignored) {
     exit(1);
   }
 
-  status = rtems_task_start(tid, DCMI_frame_handler, 0);
+  status = rtems_task_start(frame_handler_tid, DCMI_frame_handler,
+                            (rtems_task_argument)&DCMI_frame_task_arguments);
 
   if (status != RTEMS_SUCCESSFUL) {
     uart_write_buf(USART2, "task start failed.............. \n\r", 34); //
