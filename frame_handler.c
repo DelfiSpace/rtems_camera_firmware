@@ -39,11 +39,11 @@ rtems_status_code register_dcmi_frame_isr(void) {
 /* ---- this is the function called as dcmi isr handler---- */
 
 rtems_isr DCMI_frame_isr(void *void_args) {
-  uart_write_buf(USART2, "trigger frame isr      \n\r", 25); // XXX:
-  volatile rtems_status_code status_s_release;
+  IFP(uart_write_buf(USART2, "trigger frame isr      \n\r", 25));
+  rtems_status_code status_s_release;
   status_s_release = rtems_event_send(frame_handler_tid, FRAME_EVENT);
   if (status_s_release != RTEMS_SUCCESSFUL) {
-    uart_write_buf(USART2, "sem release unsuccessful\n\r", 25); // XXX:
+    uart_write_buf(USART2, "sem release unsuccessful\n\r", 25);
   }
 
   DCMI->ICR |= DCMI_ICR_FRAME_ISC_Msk;
@@ -51,25 +51,25 @@ rtems_isr DCMI_frame_isr(void *void_args) {
 
 rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
 
+  volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
+  extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
+
   /* enable dcmi vsync interrupt */
   DCMI->IER |= DCMI_IER_FRAME_IE;
 
+  uart_write_buf(USART2, "- Starting capture -    \n\r", 25);
   /* set dcmi capture flag */
   DCMI->CR |= DCMI_CR_CAPTURE;
   while (1) {
 
     /* acquire the semaphore */
     rtems_event_set frame_event_s;
-    volatile rtems_status_code status_s_acquire;
+    rtems_status_code status_s_acquire;
     status_s_acquire = rtems_event_receive(FRAME_EVENT, RTEMS_WAIT,
                                            RTEMS_NO_TIMEOUT, &frame_event_s);
-    uart_write_buf(USART2, "handling the frame!!!!!         \n\r", 34);
+    IFP(uart_write_buf(USART2, "handling the frame!!!!!         \n\r", 34));
 
-    volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
-
-    extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
-
-    volatile struct dcmi_buffer_context dcmi_buffer_ctx = {
+    struct dcmi_buffer_context dcmi_buffer_ctx = {
         .buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_WSIZE,
         .buffer_tail_ptr =
             dcmi_dma_buffer + sizeof(dcmi_dma_buffer) - IMG_METADATA_MAX_WSIZE};
@@ -123,16 +123,17 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       for (int i = 1; i < image2write.num_pages; i++) {
         image2write.nand_addr[i] =
             get_next_nand_addr(image2write.nand_addr[i - 1]);
-        /*
-         * (debug) Print the addresses:
-         */
-        int n;
-        n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
-                    image2write.nand_addr[i].block,
-                    image2write.nand_addr[i].page);
-        uart_write_buf(USART2, temp_str, n);
-        /*
-         */
+        IFP(
+            /*
+             * (debug) Print the addresses:
+             */
+            int n; n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
+                               image2write.nand_addr[i].block,
+                               image2write.nand_addr[i].page);
+            uart_write_buf(USART2, temp_str, n);
+            /*
+             */
+        );
       }
 
       size_t str_s = sizeof(image2write);
@@ -188,12 +189,9 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       *dcmi_buffer_ctx.img_head_ptr = 0x00;
       *dcmi_buffer_ctx.img_tail_ptr = 0x00;
       /* add here timing check*/
-      /* WARN: not sure this works*/
-      if (DCMI->MISR) {
-        uart_write_buf(USART2, "TOO SLOW\n\r", 10);
-      }
+      uart_write_buf(USART2, "DONE!\n\r", 7);
     }
-    uart_write_buf(USART2, "!!!!! end of routine\n\r", 22);
+    uart_write_buf(USART2, "NOIMG\n\r", 7);
   }
 }
 
@@ -225,8 +223,6 @@ void get_image_storage_status(void *void_args) {
 
   volatile u32 found_image_n = 0;
 
-// #define SEARCH_BLOCK_LIMIT MT29_MAX_BLOCKn
-#define SEARCH_BLOCK_LIMIT 5
   for (int i = 0; i < SEARCH_BLOCK_LIMIT; i++) {
     for (int j = 0; j < MT29_MAX_PAGEn; j++) {
 
@@ -285,12 +281,14 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
     if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD8) {
       head_ptr = check_ptr + i;
       ptr_areset |= 1 << 0;
+      uart_write_buf(USART2, "h\n\r", 3); // XXX:
     }
     // get location of the jpeg closer (FFD9)
     if ((check_ptr + i) > head_ptr && ptr_areset == 1) {
       if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD9) {
         tail_ptr = check_ptr + i;
         ptr_areset |= 1 << 1;
+        uart_write_buf(USART2, "t\n\r", 3); // XXX:
       }
     }
   }
@@ -301,9 +299,11 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
     dcmi_buffer_ctx->img_head_ptr = head_ptr;
     dcmi_buffer_ctx->img_tail_ptr = tail_ptr;
     dcmi_buffer_ctx->img_size = img_size;
-    return 1; // frame found
+    uart_write_buf(USART2, "+\n\r", 3); // XXX:
+    return 1;                           // frame found
   }
-  return 0; // frame not found
+  uart_write_buf(USART2, "-\n\r", 3); // XXX:
+  return 0;                           // frame not found
 }
 
 struct nand_addr get_next_nand_addr(struct nand_addr addr) {

@@ -19,6 +19,9 @@
 
 #define PROGRAMG_NAND
 
+// #define SEARCH_BLOCK_LIMIT MT29_MAX_BLOCKn
+#define SEARCH_BLOCK_LIMIT 20
+
 /* this was wayy to much to fit in ram
  * -> do a report of the initial implementaton and than the following
  *  solution
@@ -75,3 +78,13 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr);
  * each of the options.
  *
  */
+
+#ifndef IFP
+static u8 frame_handler_doprint = {0};
+#define IFP(codeBlock)                                                         \
+  do {                                                                         \
+    if (frame_handler_doprint) {                                               \
+      codeBlock;                                                               \
+    }                                                                          \
+  } while (0)
+#endif
