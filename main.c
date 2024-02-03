@@ -64,11 +64,10 @@ rtems_task Init(rtems_task_argument ignored) {
     mspi_transfer(octospi1, mt29.wait_oip, &page_nand_addr);
   }
 
-  while (1) {
-    uart_write_buf(USART2, "nand_cleared \n\r", 15);
-  }
+  // while (1) {
+  uart_write_buf(USART2, "nand_cleared \n\r", 15);
+  //}
 #endif
-
   /* read the memory and get context */
   get_image_storage_status(&DCMI_frame_task_arguments);
 

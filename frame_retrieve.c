@@ -53,15 +53,21 @@ u32 retrieve_image(volatile void *void_args) {
   volatile struct dcmi_buffer_context buffer_context = {.buffer_head_ptr =
                                                             dcmi_dma_buffer};
   /*run buffer analyze to isolate the imagedata */
-  dcmi_buffer_analyze(&buffer_context);
+  u32 valid = dcmi_buffer_analyze(&buffer_context);
 
-  /* whithout this part it is going to be optimized out */
-  char temp_str[100];
-  int n;
-  n = sprintf(temp_str, "image downloading ptr %x, %x, %x (head/tail/size)\r\n",
-              buffer_context.img_head_ptr, buffer_context.img_tail_ptr,
-              buffer_context.img_size);
-  uart_write_buf(USART2, temp_str, n);
-  image_downloader_hook(args, buffer_context);
-  return 1;
+  if (valid) {
+    /* whithout this part it is going to be optimized out */
+    char temp_str[100];
+    int n;
+    n = sprintf(temp_str,
+                "image downloading ptr %x, %x, %x (head/tail/size)\r\n",
+                buffer_context.img_head_ptr, buffer_context.img_tail_ptr,
+                buffer_context.img_size);
+    uart_write_buf(USART2, temp_str, n);
+    image_downloader_hook(args, buffer_context);
+    return 1;
+  } else {
+    return 0;
+  }
+  return 0;
 }

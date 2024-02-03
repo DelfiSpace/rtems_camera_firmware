@@ -12,12 +12,14 @@
 #include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_uart.h>
 
-#define MAX_PAGES_IMAGE 20
+#define MAX_PAGES_IMAGE 40
 
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
 
 #define PROGRAMG_NAND
+// #define CLEAR_NAND
+#define IF_DOWNLOAD
 
 // #define SEARCH_BLOCK_LIMIT MT29_MAX_BLOCKn
 #define SEARCH_BLOCK_LIMIT 20

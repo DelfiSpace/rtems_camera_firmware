@@ -1,6 +1,6 @@
 #include "frame_handler.h"
 #include "frame_retrieve.h"
-#define RESET_BLOCK_LOCATION 1
+#define RESET_BLOCK_LOCATION 0
 #define RESET_PAGE_LOCATION 0
 
 // Define semaphore
@@ -61,6 +61,7 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
   /* set dcmi capture flag */
   DCMI->CR |= DCMI_CR_CAPTURE;
   while (1) {
+    DCMI->CR |= DCMI_CR_CAPTURE; // XXX: just for snapshot testing
 
     /* acquire the semaphore */
     rtems_event_set frame_event_s;
@@ -101,11 +102,13 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
 
         args->image_storage_struct->id = 0;
         args->image_storage_struct->timestamp = 0;
+        uart_write_buf(USART2, "Reset addr: max pages   \n\r", 25);
       }
       /* checks bounds for the nand addresses */
-      if (last_addr.block == 0 || last_addr.block > MT29_MAX_BLOCKn ||
+      if (last_addr.block > MT29_MAX_BLOCKn ||
           last_addr.page > MT29_MAX_PAGEn) {
         /* if out of bounds return to reset valuesS */
+        uart_write_buf(USART2, "Reset addr: out of bound\n\r", 25);
         last_addr.block = RESET_BLOCK_LOCATION;
         last_addr.page = RESET_PAGE_LOCATION;
         last_addr.column = 0x0;
@@ -123,17 +126,16 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       for (int i = 1; i < image2write.num_pages; i++) {
         image2write.nand_addr[i] =
             get_next_nand_addr(image2write.nand_addr[i - 1]);
-        IFP(
-            /*
-             * (debug) Print the addresses:
-             */
-            int n; n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
-                               image2write.nand_addr[i].block,
-                               image2write.nand_addr[i].page);
-            uart_write_buf(USART2, temp_str, n);
-            /*
-             */
-        );
+        /*
+         * (debug) Print the addresses:
+         */
+        int n;
+        n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
+                    image2write.nand_addr[i].block,
+                    image2write.nand_addr[i].page);
+        uart_write_buf(USART2, temp_str, n);
+        /*
+         */
       }
 
       size_t str_s = sizeof(image2write);
@@ -190,8 +192,9 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       *dcmi_buffer_ctx.img_tail_ptr = 0x00;
       /* add here timing check*/
       uart_write_buf(USART2, "DONE!\n\r", 7);
+    } else {
+      uart_write_buf(USART2, "NOIMG\n\r", 7);
     }
-    uart_write_buf(USART2, "NOIMG\n\r", 7);
   }
 }
 
@@ -202,7 +205,6 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
  * *
  */
 
-#define IF_DOWNLOAD
 void get_image_storage_status(void *void_args) {
   /* iterate over the static memory and copies the image structures that are
    * found in the ram registry */
@@ -276,6 +278,7 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
   u32 img_size = {0};
 
   int i = 0;
+  /* utter garbage, just for testing */
   for (i = 0; i < MAX_DMA_TRS_SIZE * 4; i++) {
     // get location of the jpeg header (FFD8)
     if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD8) {
@@ -289,6 +292,7 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
         tail_ptr = check_ptr + i;
         ptr_areset |= 1 << 1;
         uart_write_buf(USART2, "t\n\r", 3); // XXX:
+        break;
       }
     }
   }
