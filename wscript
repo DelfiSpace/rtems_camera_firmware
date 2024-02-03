@@ -36,4 +36,5 @@ def build(bld):
         source = ['main.c',
                   'frame_handler.c',
                   'test_nand_routines.c',
+                  'test_image_storage_routines.c',
                   'init.c'])

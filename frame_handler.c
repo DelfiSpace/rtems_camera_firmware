@@ -2,11 +2,11 @@
 #include "stm32l4r9_module_mspi_mt29.h"
 #include <rtems/rtems/event.h>
 #include <stm32l4r9_module_mspi.h>
+#include <stm32l4r9xx.h>
 #include <string.h>
 
-#define RESET_BLOCK 1
-#define RESET_PAGE 0
-// #define PROGRAMG_NAND
+#define RESET_BLOCK_LOCATION 1
+#define RESET_PAGE_LOCATION 0
 
 // Define semaphore
 #define FRAME_EVENT RTEMS_EVENT_0
@@ -70,16 +70,14 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
                                            RTEMS_NO_TIMEOUT, &frame_event_s);
     uart_write_buf(USART2, "handling the frame!!!!!         \n\r", 34);
 
-    /* unset dcmi capture flag */
-    /* NOTE: probably not the best way to do it. consider snapshot */
-    DCMI->CR &= DCMI_CR_CAPTURE;
-
     volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
 
     extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
 
     volatile struct dcmi_buffer_context dcmi_buffer_ctx = {
-        .buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_WSIZE};
+        .buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_WSIZE,
+        .buffer_tail_ptr =
+            dcmi_dma_buffer + sizeof(dcmi_dma_buffer) - IMG_METADATA_MAX_WSIZE};
 
     /* get properties of the image in the buffer */
     if (dcmi_buffer_analyze(&dcmi_buffer_ctx)) {
@@ -102,21 +100,29 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
             args->image_storage_struct->nand_addr[last_image_page_index];
       } else {
         /* if number of pages out of bounds */
-        last_addr.block = RESET_BLOCK;
-        last_addr.page = RESET_PAGE;
+        last_addr.block = RESET_BLOCK_LOCATION;
+        last_addr.page = RESET_PAGE_LOCATION;
         last_addr.column = 0x0;
+
+        args->image_storage_struct->id = 0;
+        args->image_storage_struct->timestamp = 0;
       }
       /* checks bounds for the nand addresses */
       if (last_addr.block == 0 || last_addr.block > MT29_MAX_BLOCKn ||
           last_addr.page > MT29_MAX_PAGEn) {
         /* if out of bounds return to reset valuesS */
-        last_addr.block = RESET_BLOCK;
-        last_addr.page = RESET_PAGE;
+        last_addr.block = RESET_BLOCK_LOCATION;
+        last_addr.page = RESET_PAGE_LOCATION;
         last_addr.column = 0x0;
+
+        args->image_storage_struct->id = 0;
+        args->image_storage_struct->timestamp = 0;
       }
 
       /* generate nand addresses for the used pages*/
       image2write.nand_addr[0] = get_next_nand_addr(last_addr);
+      image2write.id = args->image_storage_struct->id + 1;
+      image2write.timestamp = 0; /* TODO: */
 
       char temp_str[50]; // XXX: debug
       for (int i = 1; i < image2write.num_pages; i++) {
@@ -183,9 +189,16 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
 
       /* sets last image as current image*/
       *args->image_storage_struct = image2write;
+      /* dirty the header and closer of the dma buffer */
+      *dcmi_buffer_ctx.img_head_ptr = 0x00;
+      *dcmi_buffer_ctx.img_tail_ptr = 0x00;
+      /* add here timing check*/
+      /* WARN: not sure this works*/
+      if (DCMI->MISR) {
+        uart_write_buf(USART2, "TOO SLOW\n\r", 10);
+      }
     }
-    uart_write_buf(USART2, "reser frame handler             \n\r",
-                   34); // XXX:
+    uart_write_buf(USART2, "!!!!! end of routine\n\r", 22);
   }
 }
 
@@ -196,56 +209,69 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
  * *
  */
 
-// WARNING: to be tested
-void get_image_storage_status(struct mspi_interface octospi,
-                              struct mspi_device mt29,
-                              struct jpeg_image *image_storage_struct) {
+void get_image_storage_status(void *void_args) {
   /* iterate over the static memory and copies the image structures that are
    * found in the ram registry */
-  u32 page_buffer[MT29_PAGE_W_SIZE];
+
+  volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
+  /*
+  struct mspi_interface octospi = args->mspi_interface;
+  struct mspi_device mt29 = args->mspi_device;
+  struct jpeg_image *image_storage_struct = args->image_storage_struct;
+  */
+
+  volatile u32 page_buffer[MT29_PAGE_W_SIZE];
 
   struct nand_addr page_nand_addr;
   page_nand_addr.column = 0;
 
-  size_t str_s = sizeof(*image_storage_struct);
+  size_t str_s = sizeof(*args->image_storage_struct);
 
-  int i = 1; // initial block is 1
-  int j = 0;
   volatile u32 found_image_n = 0;
 
-  for (; i < MT29_MAX_BLOCKn; i++) {
-    for (; j < MT29_MAX_PAGEn; j++) {
+// #define SEARCH_BLOCK_LIMIT MT29_MAX_BLOCKn
+#define SEARCH_BLOCK_LIMIT 5
+  for (int i = 0; i < SEARCH_BLOCK_LIMIT; i++) {
+    for (int j = 0; j < MT29_MAX_PAGEn; j++) {
 
       page_nand_addr.block = i;
       page_nand_addr.page = j;
+      char temp_str[20];
+      int n;
+      n = sprintf(temp_str, "ck: %d %d\r\n", i, j);
+      uart_write_buf(USART2, temp_str, n);
 
-      mspi_transfer(octospi, mt29.page_read_from_nand, &page_nand_addr);
-      mspi_transfer(octospi, mt29.wait_oip, &page_nand_addr);
+      mspi_transfer(args->mspi_interface, args->mspi_device.page_read_from_nand,
+                    &page_nand_addr);
+      mspi_transfer(args->mspi_interface, args->mspi_device.wait_oip,
+                    &page_nand_addr);
 
       memset(page_buffer, 0x0, MT29_PAGE_SIZE);
-      octospi.data_ptr = &page_buffer[0];
-      mspi_transfer(octospi, mt29.page_read_from_cache_QUAD, &page_nand_addr);
-      /* you need a bigger, circular buffer, use the same used for the dma
-       * transfer */
+      args->mspi_interface.data_ptr = &page_buffer[0];
+      mspi_transfer(args->mspi_interface,
+                    args->mspi_device.page_read_from_cache_QUAD,
+                    &page_nand_addr);
 
-      int k = 0;
+      volatile int k = 0;
       for (; k < MT29_PAGE_W_SIZE; k++) {
-        //* FIX: you need to check u32,
         if (page_buffer[k] == image_struct_header &&
-            page_buffer[k + str_s] == image_struct_closer) {
-          memcpy((image_storage_struct), &page_buffer[k + 4], str_s);
+            page_buffer[k + str_s / 4 + 1] == image_struct_closer) {
+          memcpy(args->image_storage_struct, &page_buffer[k + 1], str_s);
           uart_write_buf(USART2, "found an image\n\r", 16);
+          /* note:
+           * at this point you have the addressess of the image to be retrieved
+           * the structure.
+           * Use the retrieve function to obtain the image.
+           */
           found_image_n++;
         }
       }
     }
   }
   /* XXX: before exiting clear the dcmi_dma_buffer*/
+  /* FIX: at the moment does not change the values that are passed as inputs */
 }
 
-// FIX: you need to explore the buffer in a circular manner, becouse
-// otherwhise you would always find only the first image, but expecially in
-// jpeg there are going to be more
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
   /*
    * data_ptr is the start of the buffer.
@@ -262,18 +288,21 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
   int i = 0;
   for (i = 0; i < MAX_DMA_TRS_SIZE * 4; i++) {
     // get location of the jpeg header (FFD8)
-    if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD8)
+    if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD8) {
       head_ptr = check_ptr + i;
-    ptr_areset |= 1 << 0;
+      ptr_areset |= 1 << 0;
+    }
     // get location of the jpeg closer (FFD9)
-    if ((check_ptr + i) > head_ptr && *(check_ptr + i) == 0xFF &&
-        *(check_ptr + i + 1) == 0xD9)
-      tail_ptr = check_ptr + i;
-    ptr_areset |= 1 << 1;
+    if ((check_ptr + i) > head_ptr && ptr_areset == 1) {
+      if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD9) {
+        tail_ptr = check_ptr + i;
+        ptr_areset |= 1 << 1;
+      }
+    }
   }
   // get location of the last non dirty memory
   // (to get size of the jpeg image)
-  if (ptr_areset == 0b11) {
+  if (ptr_areset == 0b11 && tail_ptr > head_ptr) {
     img_size = tail_ptr - head_ptr;
     dcmi_buffer_ctx->img_head_ptr = head_ptr;
     dcmi_buffer_ctx->img_tail_ptr = tail_ptr;
@@ -289,46 +318,63 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr) {
     addr.page = 0;
     addr.block++;
     if (addr.block == MT29_MAX_BLOCKn) {
-      addr.block = 1; // restart from block 1 rather than from block 0
+      addr.block = 0; // restart from block 1 rather than from block 0
     }
   }
   return addr;
 }
 
-u32 retrieve_image(struct dcmi_isr_arg isr_ctx,
-                   struct jpeg_image *image_storage_struct) {
-  /*read image data from the nand pages and store it in a temporary buffer */
+u32 retrieve_image(void *void_args) {
+
+  /* iterate over the static memory and copies the image structures that are
+   * found in the ram registry */
+
+  volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
+  /*read image data from the nand pages and store it in a temporary
+   * buffer */
 
   /*allocate stack temp buffer */
-  /* this is terminally huge in stack.... and is allocated even if the fun is
-   * not used */
+  /* this is terminally huge in stack.... and is allocated even if the
+   * fun is not used */
   /* therefore the dma buffer is used */
-  /* CAUTION: the function will clear the dma buffer and shall be used only
-   * when acquisition has been completed */
+  /* CAUTION: the function will clear the dma buffer and shall be used
+   * only when acquisition has been completed */
   extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
-  uint32_t *tmp_buffer = dcmi_dma_buffer;
-  isr_ctx.mspi_interface.data_ptr = tmp_buffer;
+  /* clear buffer */
+  memset(dcmi_dma_buffer, 0x0, sizeof(dcmi_dma_buffer));
+
+  u32 data_padding[10];
+  u32 *circ_ptr = dcmi_dma_buffer;
   /*copy in buffer all the pages content*/
-  for (int i = 0; i < image_storage_struct->num_pages; i++) {
+  for (int i = 0; i < args->image_storage_struct->num_pages; i++) {
 
-    mspi_transfer(isr_ctx.mspi_interface,
-                  isr_ctx.mspi_device.page_read_from_nand,
-                  &image_storage_struct->nand_addr[i]);
+    args->mspi_interface.data_ptr = data_padding;
+    mspi_transfer(args->mspi_interface, args->mspi_device.page_read_from_nand,
+                  &(args->image_storage_struct->nand_addr[i]));
 
-    mspi_transfer(isr_ctx.mspi_interface, isr_ctx.mspi_device.wait_oip,
-                  &image_storage_struct->nand_addr[i]);
+    args->mspi_interface.data_ptr = data_padding;
+    mspi_transfer(args->mspi_interface, args->mspi_device.wait_oip,
+                  &(args->image_storage_struct->nand_addr[i]));
 
-    mspi_transfer(isr_ctx.mspi_interface,
-                  isr_ctx.mspi_device.page_read_from_cache_QUAD,
-                  &image_storage_struct->nand_addr[i]);
-    isr_ctx.mspi_interface.data_ptr += MT29_PAGE_W_SIZE;
+    args->mspi_interface.data_ptr = circ_ptr;
+    mspi_transfer(args->mspi_interface,
+                  args->mspi_device.page_read_from_cache_QUAD,
+                  &(args->image_storage_struct->nand_addr[i]));
+
+    circ_ptr += MT29_PAGE_W_SIZE;
   }
 
-  /* generate context for temporary buffer */
-  struct dcmi_buffer_context tmp_buffer_context = {
-      .buffer_head_ptr = tmp_buffer}; // beginning of the extended buffer
+  /* generate context for the buffer buffer */
+  volatile struct dcmi_buffer_context buffer_context = {.buffer_head_ptr =
+                                                            dcmi_dma_buffer};
   /*run buffer analyze to isolate the imagedata */
-  dcmi_buffer_analyze(&tmp_buffer_context);
+  dcmi_buffer_analyze(&buffer_context);
 
-  /* TODO: add here stuff to do with the image in the temporary buffer */
+  char temp_str[50];
+  int n;
+  n = sprintf(temp_str, "image downloading ptr %x, %x, %x (head/tail/size)\r\n",
+              buffer_context.img_head_ptr, buffer_context.img_tail_ptr,
+              buffer_context.img_size);
+  uart_write_buf(USART2, temp_str, n);
+  spin(1); // just to provide an anchor for the debugger
 }

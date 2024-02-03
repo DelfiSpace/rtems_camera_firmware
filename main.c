@@ -29,6 +29,7 @@
 /* Application includes */
 #include "frame_handler.h"
 // #include "test_nand_routines.h"
+#include "test_image_storage_routines.h"
 
 volatile struct jpeg_image last_image; // TODO: remove from here.
 
@@ -48,14 +49,17 @@ rtems_task Init(rtems_task_argument ignored) {
   struct mspi_device mt29 = mspi_device_constr();
 
   /* --- dcmi memory system initialization */
-
-  /* read the memory and get context */
-  get_image_storage_status(octospi1, mt29, &last_image);
-
   struct dcmi_isr_arg DCMI_frame_task_arguments = {.image_storage_struct =
                                                        &last_image,
                                                    .mspi_interface = octospi1,
                                                    .mspi_device = mt29};
+
+  image_storage_test_routines();
+  while (1) {
+  }; // XXX: REMOVE
+
+  /* read the memory and get context */
+  get_image_storage_status(&DCMI_frame_task_arguments);
 
   volatile rtems_status_code ir_rs = {0};
   ir_rs = register_dcmi_frame_isr();
@@ -65,7 +69,14 @@ rtems_task Init(rtems_task_argument ignored) {
 
   /* ---- TEST EXECUTION ---------------------- */
 
-  /* ---- TEST EXECUTION ---------------------- */
+  /* ---- TEST CLEAR THE BLOCK ---------------- */
+  struct nand_addr page_nand_addr = {.block = 1, .page = 0, .column = 0};
+#ifdef PROGRAMG_NAND
+  mspi_transfer(octospi1, mt29.write_unlock, &page_nand_addr);
+  mspi_transfer(octospi1, mt29.write_enable, &page_nand_addr);
+  mspi_transfer(octospi1, mt29.block_erase, &page_nand_addr);
+  mspi_transfer(octospi1, mt29.wait_oip, &page_nand_addr);
+#endif
 
   /* ---- TASK DEFINITION --------------------- */
   rtems_status_code status;

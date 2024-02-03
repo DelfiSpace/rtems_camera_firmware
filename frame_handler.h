@@ -14,6 +14,8 @@
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
 
+#define PROGRAMG_NAND
+
 /* this was wayy to much to fit in ram
  * -> do a report of the initial implementaton and than the following
  *  solution
@@ -28,6 +30,7 @@ struct dcmi_buffer_context {
 
   u8 *buff_current_circ_ptr;
   u32 *buffer_head_ptr;
+  u32 *buffer_tail_ptr;
 };
 
 struct jpeg_image {
@@ -49,14 +52,24 @@ struct dcmi_isr_arg {
 /* isr prototypes */
 rtems_status_code register_dcmi_frame_isr(void);
 rtems_isr DCMI_frame_isr(void *arg);
-rtems_task DCMI_frame_handler(rtems_task_argument argument);
 
+/* main functional methods */
+rtems_task DCMI_frame_handler(rtems_task_argument argument);
+void get_image_storage_status(void *args);
+u32 retrieve_image(void *void_args);
+
+/* accessory methods */
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);
 u32 *dcmi_get_buffer_ptr(void);
-
-void get_image_storage_status(struct mspi_interface octospi,
-                              struct mspi_device mt29,
-                              struct jpeg_image *image_storage_struct);
-
-u32 find_last_image_index(struct jpeg_image *image_storage_struct);
 struct nand_addr get_next_nand_addr(struct nand_addr addr);
+
+/*
+ * Interesting for the thesis:
+ * have the images stored as a linked list in memory.
+ * this way the image metadata contain also a next and previous
+ * in terms of nand addresses.
+ * It is therefore possible to go more efficiently for a precise image, given a
+ * set of assumptions. It could also be inteiesting to analyze the complexity of
+ * each of the options.
+ *
+ */
