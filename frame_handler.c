@@ -54,9 +54,9 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
   /* enable dcmi vsync interrupt */
   DCMI->IER |= DCMI_IER_FRAME_IE;
 
+  /* set dcmi capture flag */
+  DCMI->CR |= DCMI_CR_CAPTURE;
   while (1) {
-    /* set dcmi capture flag */
-    DCMI->CR |= DCMI_CR_CAPTURE;
 
     /* acquire the semaphore */
     rtems_event_set frame_event_s;
