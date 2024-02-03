@@ -1,9 +1,12 @@
 #pragma once
 #include <rtems.h>
 #include <rtems/irq.h>
+#include <rtems/rtems/event.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9xx.h>
+#include <string.h>
 
 #include <stm32l4r9_module_dcmi.h>
 #include <stm32l4r9_module_mspi.h>
@@ -56,7 +59,6 @@ rtems_isr DCMI_frame_isr(void *arg);
 /* main functional methods */
 rtems_task DCMI_frame_handler(rtems_task_argument argument);
 void get_image_storage_status(void *args);
-u32 retrieve_image(void *void_args);
 
 /* accessory methods */
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);

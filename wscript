@@ -37,4 +37,5 @@ def build(bld):
                   'frame_handler.c',
                   'test_nand_routines.c',
                   'test_image_storage_routines.c',
+                  'frame_retrieve.c',
                   'init.c'])

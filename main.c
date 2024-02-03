@@ -29,7 +29,7 @@
 /* Application includes */
 #include "frame_handler.h"
 // #include "test_nand_routines.h"
-#include "test_image_storage_routines.h"
+// #include "test_image_storage_routines.h"
 
 volatile struct jpeg_image last_image; // TODO: remove from here.
 
@@ -54,29 +54,30 @@ rtems_task Init(rtems_task_argument ignored) {
                                                    .mspi_interface = octospi1,
                                                    .mspi_device = mt29};
 
-  image_storage_test_routines();
+  /* ---- TEST CLEAR THE BLOCK ---------------- */
+#ifdef CLEAR_NAND
+  for (int i = 0; i < 10; i++) {
+    struct nand_addr page_nand_addr = {.block = i, .page = 0, .column = 0};
+    mspi_transfer(octospi1, mt29.write_unlock, &page_nand_addr);
+    mspi_transfer(octospi1, mt29.write_enable, &page_nand_addr);
+    mspi_transfer(octospi1, mt29.block_erase, &page_nand_addr);
+    mspi_transfer(octospi1, mt29.wait_oip, &page_nand_addr);
+  }
+
   while (1) {
-  }; // XXX: REMOVE
+    uart_write_buf(USART2, "nand_cleared \n\r", 15);
+  }
+#endif
 
   /* read the memory and get context */
   get_image_storage_status(&DCMI_frame_task_arguments);
 
+  /* ---- REGISTER ISR ------------------------ */
   volatile rtems_status_code ir_rs = {0};
   ir_rs = register_dcmi_frame_isr();
   if (ir_rs != RTEMS_SUCCESSFUL) {
     uart_write_buf(USART2, "unable to register isr  \n\r", 25);
   }
-
-  /* ---- TEST EXECUTION ---------------------- */
-
-  /* ---- TEST CLEAR THE BLOCK ---------------- */
-  struct nand_addr page_nand_addr = {.block = 1, .page = 0, .column = 0};
-#ifdef PROGRAMG_NAND
-  mspi_transfer(octospi1, mt29.write_unlock, &page_nand_addr);
-  mspi_transfer(octospi1, mt29.write_enable, &page_nand_addr);
-  mspi_transfer(octospi1, mt29.block_erase, &page_nand_addr);
-  mspi_transfer(octospi1, mt29.wait_oip, &page_nand_addr);
-#endif
 
   /* ---- TASK DEFINITION --------------------- */
   rtems_status_code status;
@@ -105,7 +106,7 @@ rtems_task Init(rtems_task_argument ignored) {
   }
   uart_write_buf(USART2, "task init continue............. \n\r", 34); // XXX:
 
-  status = rtems_task_delete(RTEMS_SELF); /* should not return */
+  status = rtems_task_delete(RTEMS_SELF); /* should not /return */
 
   uart_write_buf(USART2, "task delete failed............. \n\r", 34); // XXX:
   exit(1);

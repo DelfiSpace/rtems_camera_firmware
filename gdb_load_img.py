@@ -12,7 +12,7 @@ class LoadImageCommand(gdb.Command):
         # 'arg' will contain any arguments passed to 'loadimage'
         
         # Extracting arguments
-        breakpoint_location =  "frame_handler.c:375"
+        breakpoint_location =  "image_downloader_hook"
         memory_start = "buffer_context.img_head_ptr"
         memory_end = "buffer_context.img_tail_ptr"
 
