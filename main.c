@@ -33,7 +33,7 @@
 // #include "test_nand_routines.h"
 // #include "test_image_storage_routines.h"
 
-volatile struct jpeg_image last_image; // TODO: remove from here.
+struct jpeg_image last_image; // TODO: remove from here.
 
 // command variables for gdb interfaces
 int clean_nand_n = 0;

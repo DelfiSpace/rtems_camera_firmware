@@ -1,5 +1,6 @@
 #include "frame_handler.h"
 #include "frame_retrieve.h"
+#include <stm32l4r9xx.h>
 #define RESET_BLOCK_LOCATION 0
 #define RESET_PAGE_LOCATION 0
 
@@ -9,6 +10,10 @@ extern rtems_id frame_handler_tid;
 
 u32 image_struct_header = {IMAGE_NAND_STR_HEAD};
 u32 image_struct_closer = {IMAGE_NAND_STR_CLOS};
+
+/* local declarations */
+void init_timer(void);
+double calculateElapsedTime(uint16_t startCounter, uint16_t endCounter);
 
 /**
  * --------------------------------------------------------------------------- *
@@ -62,8 +67,13 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       &dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE - 1];
   dcmi_buffer_ctx.buff_current_circ_ptr = (u8 *)dcmi_buffer_ctx.buffer_head_ptr;
 
+  init_timer(); // XXX: temporary for testing
   struct jpeg_image image2write = {0};
   struct nand_addr last_addr = {0};
+  u32 tick_acq;
+  u32 tock_acq;
+  u32 tick_wait;
+  u32 tock_wait;
 
   /* enable dcmi vsync interrupt */
   DCMI->IER |= DCMI_IER_FRAME_IE;
@@ -79,6 +89,8 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     rtems_status_code status_s_acquire;
     status_s_acquire = rtems_event_receive(FRAME_EVENT, RTEMS_WAIT,
                                            RTEMS_NO_TIMEOUT, &frame_event_s);
+    tock_wait = TIM6->CNT & TIM_CNT_CNT_Msk;
+    tick_acq = TIM6->CNT & TIM_CNT_CNT_Msk;
     IFP(uart_write_buf(USART2, "handling the frame\n\r", 20));
 
     /* ------------------- */
@@ -200,10 +212,22 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       *dcmi_buffer_ctx.img_head_ptr = 0x00;
       *dcmi_buffer_ctx.img_tail_ptr = 0x00;
       /* add here timing check*/
-      uart_write_buf(USART2, "DONE!\n\r", 7);
+      IFP(uart_write_buf(USART2, "DONE!\n\r", 7));
+
+      /* print time */
+      tock_acq = TIM6->CNT & TIM_CNT_CNT_Msk;
+      char temp_timestr[20];
+      int n;
+      n = sprintf(temp_timestr, "acq:%f\r\n",
+                  calculateElapsedTime(tick_acq, tock_acq));
+      uart_write_buf(USART2, temp_timestr, n);
+      n = sprintf(temp_timestr, "wit:%f\r\n",
+                  calculateElapsedTime(tick_wait, tock_wait));
+      uart_write_buf(USART2, temp_timestr, n);
     } else {
       uart_write_buf(USART2, "NOIMG\n\r", 7);
     }
+    tick_wait = TIM6->CNT & TIM_CNT_CNT_Msk;
   }
 }
 
@@ -350,4 +374,41 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr) {
     }
   }
   return addr;
+}
+
+/* WARN: temporary, for testing */
+void init_timer(void) {
+  // clock the APB1 bus
+  RCC->APB1ENR1 |= RCC_APB1ENR1_TIM6EN;
+  spin(1);
+// set PSC
+#define DIVII 2000
+  TIM6->PSC &= TIM_PSC_PSC_Msk;
+  TIM6->PSC |= DIVII - 1;
+
+  // set ARR
+  TIM6->ARR |= 0xFFFF; // 65536
+
+  // set control register
+  TIM6->CR1 |= TIM_CR1_CEN;
+}
+
+/* TODO: harmonize with bsp frequency */
+#define SYSTICK 120000000 // Hz
+double calculateElapsedTime(uint16_t startCounter, uint16_t endCounter) {
+  uint32_t tickDifference;
+
+  // Handle counter wrap-around
+
+  if (endCounter >= startCounter) {
+    tickDifference = endCounter - startCounter;
+  } else {
+    // Counter has wrapped around
+    tickDifference = (0xFFFF - startCounter) + endCounter + 1;
+  }
+
+  // Calculate time in seconds
+  double timeElapsed = (double)tickDifference * DIVII / (SYSTICK);
+
+  return timeElapsed;
 }
