@@ -54,6 +54,17 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
   volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
   extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
 
+  /* generate buffer context */
+  // TODO: move in a constructor
+  struct dcmi_buffer_context dcmi_buffer_ctx = {0};
+  dcmi_buffer_ctx.buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_WSIZE;
+  dcmi_buffer_ctx.buffer_tail_ptr =
+      &dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE - 1];
+  dcmi_buffer_ctx.buff_current_circ_ptr = (u8 *)dcmi_buffer_ctx.buffer_head_ptr;
+
+  struct jpeg_image image2write = {0};
+  struct nand_addr last_addr = {0};
+
   /* enable dcmi vsync interrupt */
   DCMI->IER |= DCMI_IER_FRAME_IE;
 
@@ -68,26 +79,20 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     rtems_status_code status_s_acquire;
     status_s_acquire = rtems_event_receive(FRAME_EVENT, RTEMS_WAIT,
                                            RTEMS_NO_TIMEOUT, &frame_event_s);
-    IFP(uart_write_buf(USART2, "handling the frame!!!!!         \n\r", 34));
+    IFP(uart_write_buf(USART2, "handling the frame\n\r", 20));
 
-    struct dcmi_buffer_context dcmi_buffer_ctx = {
-        .buffer_head_ptr = dcmi_dma_buffer + IMG_METADATA_MAX_WSIZE,
-        .buffer_tail_ptr =
-            dcmi_dma_buffer + sizeof(dcmi_dma_buffer) - IMG_METADATA_MAX_WSIZE};
-
+    /* ------------------- */
+    /* METADATA HANDLING   */
+    /* ------------------- */
     /* get properties of the image in the buffer */
     if (dcmi_buffer_analyze(&dcmi_buffer_ctx)) {
 
-      struct jpeg_image image_ws = {.id = args->last_image_index + 1,
-                                    .timestamp = 0};
-
       /* determine the number of pages necessary to store the image*/
-      volatile struct jpeg_image image2write;
+      memset(&image2write, 0x0, sizeof(image2write));
+
       image2write.num_pages = dcmi_buffer_ctx.img_size / MT29_PAGE_SIZE + 1;
 
-      volatile struct nand_addr last_addr = {0};
-      volatile u32 last_image_page_index =
-          args->image_storage_struct->num_pages - 1;
+      u32 last_image_page_index = args->image_storage_struct->num_pages - 1;
 
       /* last address checks */
       if (last_image_page_index <= MAX_PAGES_IMAGE) {
@@ -122,21 +127,18 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       image2write.id = args->image_storage_struct->id + 1;
       image2write.timestamp = 0; /* TODO: */
 
-      char temp_str[50]; // XXX: debug
       for (int i = 1; i < image2write.num_pages; i++) {
         image2write.nand_addr[i] =
             get_next_nand_addr(image2write.nand_addr[i - 1]);
-        /*
-         * (debug) Print the addresses:
-         */
-        int n;
-        n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
-                    image2write.nand_addr[i].block,
-                    image2write.nand_addr[i].page);
-        uart_write_buf(USART2, temp_str, n);
-        /*
-         */
+        IFP(char temp_str[50]; int n;
+            n = sprintf(temp_str, "image page %d: %d,%d (b/p)\r\n", i,
+                        image2write.nand_addr[i].block,
+                        image2write.nand_addr[i].page);
+            uart_write_buf(USART2, temp_str, n));
       }
+      /* ------------------- */
+      /* BEGIN BUF OVERWRITE */
+      /* ------------------- */
 
       size_t str_s = sizeof(image2write);
       size_t head_s = sizeof(image_struct_header);
@@ -150,16 +152,25 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
       memcpy(OW_STRUCT, &image2write, str_s);
       memcpy(OW_CLOSER, &image_struct_closer, sizeof(image_struct_closer));
 
+      /* ------------------- */
+      /* BEGIN MEM WRITE     */
+      /* ------------------- */
+#ifdef PROGRAMG_NAND
       /* write pages to the respective nand addressess */
       u32 data_padding[10];
-      int i = 0;
 
       u32 *circ_ptr = (u32 *)OW_HEADER;
-#ifdef PROGRAMG_NAND
       mspi_transfer(args->mspi_interface, args->mspi_device.write_unlock, NULL);
-#endif
-      while (circ_ptr < (u32 *)dcmi_buffer_ctx.img_tail_ptr) {
-#ifdef PROGRAMG_NAND
+
+      for (int i = 0; i < image2write.num_pages; i++) {
+        if (circ_ptr + MT29_PAGE_W_SIZE > dcmi_buffer_ctx.buffer_tail_ptr) {
+          // copy the first part of the image to the beginning of the frame
+          // u32 delta = dcmi_buffer_ctx.buffer_tail_ptr - circ_ptr;
+          u32 delta = dcmi_buffer_ctx.buffer_tail_ptr - circ_ptr + 1;
+          memcpy(dcmi_buffer_ctx.buffer_head_ptr - delta, circ_ptr,
+                 (delta) * 4);
+          circ_ptr = dcmi_buffer_ctx.buffer_head_ptr - delta;
+        }
 
         args->mspi_interface.data_ptr = data_padding;
         mspi_transfer(args->mspi_interface, args->mspi_device.write_enable,
@@ -176,14 +187,12 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
         args->mspi_interface.data_ptr = data_padding;
         mspi_transfer(args->mspi_interface, args->mspi_device.wait_oip,
                       &image2write.nand_addr[i]);
-#endif
         /* NOTE: if you have time in the cycle add a readback to ensure that
          * data in memory is ok */
 
         circ_ptr += MT29_PAGE_W_SIZE;
-        // you are not overwriting the
-        i++;
       }
+#endif
 
       /* sets last image as current image*/
       *args->image_storage_struct = image2write;
@@ -210,13 +219,8 @@ void get_image_storage_status(void *void_args) {
    * found in the ram registry */
 
   volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
-  /*
-  struct mspi_interface octospi = args->mspi_interface;
-  struct mspi_device mt29 = args->mspi_device;
-  struct jpeg_image *image_storage_struct = args->image_storage_struct;
-  */
 
-  volatile u32 page_buffer[MT29_PAGE_W_SIZE];
+  u32 page_buffer[MT29_PAGE_W_SIZE];
 
   struct nand_addr page_nand_addr;
   page_nand_addr.column = 0;
@@ -224,8 +228,8 @@ void get_image_storage_status(void *void_args) {
   size_t str_s = sizeof(*args->image_storage_struct);
 
   volatile u32 found_image_n = 0;
-
-  for (int i = 0; i < SEARCH_BLOCK_LIMIT; i++) {
+  extern int search_block_limit;
+  for (int i = 0; i < search_block_limit; i++) {
     for (int j = 0; j < MT29_MAX_PAGEn; j++) {
 
       page_nand_addr.block = i;
@@ -260,54 +264,80 @@ void get_image_storage_status(void *void_args) {
       }
     }
   }
-  /* XXX: before exiting clear the dcmi_dma_buffer*/
-  /* FIX: at the moment does not change the values that are passed as inputs */
 }
 
-u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx) {
-  /*
-   * data_ptr is the start of the buffer.
-   * the size of the buffer is in a macro
-   * you can instead define a buffer object, passed to this function
+u32 dcmi_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
+  /* determines the head and the tail of the image in buffer,
+   * calculates the size of the image
    */
+#define HEADn1 0x1
+#define HEADn2 0x2
+#define TAILn1 0x10
+#define EOBn1 0x40
+#define EOBn2 0x80
+#define FOUND_HEADn1 (status_reg & HEADn1)
+#define FOUND_HEADn2 (status_reg & HEADn2)
+#define FOUND_TAILn1 (status_reg & TAILn1)
+#define FOUND_EOBn1 (status_reg & EOBn1)
+#define FOUND_EOBn2 (status_reg & EOBn2)
+  enum ret_en { working, NOIMG, IMG };
 
-  u8 *check_ptr = (u8 *)dcmi_buffer_ctx->buffer_head_ptr;
-  u8 *head_ptr = {0};
-  u8 *tail_ptr = {0};
-  u8 ptr_areset = {0};
-  u32 img_size = {0};
-
+  volatile u8 status_reg = {0};
   int i = 0;
-  /* utter garbage, just for testing */
-  for (i = 0; i < MAX_DMA_TRS_SIZE * 4; i++) {
-    // get location of the jpeg header (FFD8)
-    if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD8) {
-      head_ptr = check_ptr + i;
-      ptr_areset |= 1 << 0;
-      uart_write_buf(USART2, "h\n\r", 3); // XXX:
-    }
-    // get location of the jpeg closer (FFD9)
-    if ((check_ptr + i) > head_ptr && ptr_areset == 1) {
-      if (*(check_ptr + i) == 0xFF && *(check_ptr + i + 1) == 0xD9) {
-        tail_ptr = check_ptr + i;
-        ptr_areset |= 1 << 1;
-        uart_write_buf(USART2, "t\n\r", 3); // XXX:
-        break;
+  volatile u8 ret = {0};
+
+#define CHK_PTR (u8 *)b_ctx->buff_current_circ_ptr
+
+  // NOTE: will fail if the image header/closer is in the middle
+  // of the end of the buffer (ff end of buffer, d8 beginning f.expl.)
+
+  while (ret == 0) {
+    /* check if the check pointer is over the tail */
+    if ((CHK_PTR + i) > (u8 *)b_ctx->buffer_tail_ptr + 3) {
+      if (FOUND_EOBn1) {
+        /* if the end of the buffer is found again, no image found */
+        status_reg |= EOBn2;
+        ret = NOIMG;
       }
+      b_ctx->buff_current_circ_ptr = (u8 *)b_ctx->buffer_head_ptr;
+      status_reg |= EOBn1;
+      i = 0;
     }
+    /* if head is found again, no image found*/
+    if (FOUND_HEADn1 && *(CHK_PTR + i) == 0xFF && *(CHK_PTR + i + 1) == 0xD8) {
+      status_reg |= HEADn2;
+      ret = NOIMG;
+    }
+    /* search for head */
+    if ((~status_reg & HEADn1) && *(CHK_PTR + i) == 0xFF &&
+        *(CHK_PTR + i + 1) == 0xD8) {
+      b_ctx->img_head_ptr = CHK_PTR + i;
+      status_reg |= HEADn1;
+    }
+    /* search for tail if head has been found*/
+    if (FOUND_HEADn1 && *(CHK_PTR + i) == 0xFF && *(CHK_PTR + i + 1) == 0xD9) {
+      b_ctx->img_tail_ptr = CHK_PTR + i;
+      status_reg |= TAILn1;
+      ret = IMG;
+    }
+    i++;
   }
-  // get location of the last non dirty memory
-  // (to get size of the jpeg image)
-  if (ptr_areset == 0b11 && tail_ptr > head_ptr) {
-    img_size = tail_ptr - head_ptr;
-    dcmi_buffer_ctx->img_head_ptr = head_ptr;
-    dcmi_buffer_ctx->img_tail_ptr = tail_ptr;
-    dcmi_buffer_ctx->img_size = img_size;
-    uart_write_buf(USART2, "+\n\r", 3); // XXX:
-    return 1;                           // frame found
+
+  if (ret == IMG) {
+    if (b_ctx->img_tail_ptr > b_ctx->img_head_ptr) {
+      b_ctx->img_size = b_ctx->img_tail_ptr - b_ctx->img_head_ptr;
+    }
+    if (b_ctx->img_head_ptr > b_ctx->img_tail_ptr) {
+      b_ctx->img_size = (u8 *)b_ctx->buffer_tail_ptr + 3 - b_ctx->img_head_ptr;
+      b_ctx->img_size += b_ctx->img_tail_ptr - (u8 *)b_ctx->buffer_head_ptr;
+    }
+    IFP(uart_write_buf(USART2, "+\n\r", 3));
+    return 1;
   }
-  uart_write_buf(USART2, "-\n\r", 3); // XXX:
-  return 0;                           // frame not found
+  IFP(uart_write_buf(USART2, "-\n\r", 3); char temp_str[22]; int n;
+      n = sprintf(temp_str, "%x,%x\r\n", status_reg, ret);
+      uart_write_buf(USART2, temp_str, n));
+  return 0;
 }
 
 struct nand_addr get_next_nand_addr(struct nand_addr addr) {
@@ -316,7 +346,7 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr) {
     addr.page = 0;
     addr.block++;
     if (addr.block == MT29_MAX_BLOCKn) {
-      addr.block = 0; // restart from block 1 rather than from block 0
+      addr.block = 0;
     }
   }
   return addr;

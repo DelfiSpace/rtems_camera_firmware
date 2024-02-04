@@ -32,7 +32,7 @@ def build(bld):
 
     bld(features = 'c cprogram',
         target = 'camera_firmware.elf',
-        cflags = '-g -O2 -mthumb -mfloat-abi=hard -fstack-usage',
+        cflags = '-g -O0 -mthumb -mfloat-abi=hard -fstack-usage',
         source = ['main.c',
                   'frame_handler.c',
                   'test_nand_routines.c',

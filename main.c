@@ -28,10 +28,16 @@
 
 /* Application includes */
 #include "frame_handler.h"
+
+/* Test includes */
 // #include "test_nand_routines.h"
 // #include "test_image_storage_routines.h"
 
 volatile struct jpeg_image last_image; // TODO: remove from here.
+
+// command variables for gdb interfaces
+int clean_nand_n = 0;
+int search_block_limit = SEARCH_BLOCK_LIMIT;
 
 rtems_id frame_handler_tid;
 
@@ -56,7 +62,7 @@ rtems_task Init(rtems_task_argument ignored) {
 
   /* ---- TEST CLEAR THE BLOCK ---------------- */
 #ifdef CLEAR_NAND
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < clean_nand_n; i++) {
     struct nand_addr page_nand_addr = {.block = i, .page = 0, .column = 0};
     mspi_transfer(octospi1, mt29.write_unlock, &page_nand_addr);
     mspi_transfer(octospi1, mt29.write_enable, &page_nand_addr);

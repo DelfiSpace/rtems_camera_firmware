@@ -1,9 +1,10 @@
 # gets the current wsl interface ip 
 #ip route show | grep -i default | awk '{ print $3}'
 
-#source /home/v/RTEMS/app/hello/PyCortexMDebug/scripts/gdb.py
 source gdb.py
 svd_load STM32L4R9.svd 
+
+set pagination off
 
 source gdb_load_img.py
 
@@ -39,5 +40,13 @@ else:
     print("Failed to obtain remote IP")
 end
 
+break Init
+continue
 
+python
+clean_nand_n = gdb.parse_and_eval("clean_nand_n")
+search_block_limit = gdb.parse_and_eval("search_block_limit")
 
+print(f"clean_nand_n: {clean_nand_n}")
+print(f"search_block_limit: {search_block_limit}")
+end

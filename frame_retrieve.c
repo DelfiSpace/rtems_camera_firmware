@@ -1,4 +1,5 @@
 #include "frame_retrieve.h"
+#include <stm32l4r9_module_dcmi.h>
 
 __attribute__((used)) void
 image_downloader_hook(volatile struct dcmi_isr_arg *args,
@@ -10,20 +11,11 @@ image_downloader_hook(volatile struct dcmi_isr_arg *args,
 }
 
 u32 retrieve_image(volatile void *void_args) {
-
-  /* iterate over the static memory and copies the image structures that are
-   * found in the ram registry */
+  /* iterate over the static memory and if image metadata is found, retrieve
+   * the relative image data and provide an hook for the gdb script to download
+   * from the buffer */
 
   volatile struct dcmi_isr_arg *args = (struct dcmi_isr_arg *)void_args;
-  /*read image data from the nand pages and store it in a temporary
-   * buffer */
-
-  /*allocate stack temp buffer */
-  /* this is terminally huge in stack.... and is allocated even if the
-   * fun is not used */
-  /* therefore the dma buffer is used */
-  /* CAUTION: the function will clear the dma buffer and shall be used
-   * only when acquisition has been completed */
   extern uint32_t dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE];
   /* clear buffer */
   memset(dcmi_dma_buffer, 0x0, sizeof(dcmi_dma_buffer));
@@ -50,13 +42,18 @@ u32 retrieve_image(volatile void *void_args) {
   }
 
   /* generate context for the buffer buffer */
-  volatile struct dcmi_buffer_context buffer_context = {.buffer_head_ptr =
-                                                            dcmi_dma_buffer};
+  // TODO: transform in a constructor
+  struct dcmi_buffer_context buffer_context = {0};
+  buffer_context.buffer_head_ptr = dcmi_dma_buffer;
+  buffer_context.buffer_tail_ptr =
+      &dcmi_dma_buffer[MAX_DMA_TRS_SIZE + IMG_METADATA_MAX_WSIZE - 1];
+  buffer_context.buff_current_circ_ptr = (u8 *)buffer_context.buffer_head_ptr;
   /*run buffer analyze to isolate the imagedata */
   u32 valid = dcmi_buffer_analyze(&buffer_context);
 
   if (valid) {
-    /* whithout this part it is going to be optimized out */
+    /* note: whithout the print part it is going to be optimized out (dead code
+     * optimization)*/
     char temp_str[100];
     int n;
     n = sprintf(temp_str,

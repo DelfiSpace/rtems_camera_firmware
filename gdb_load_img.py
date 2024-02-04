@@ -29,7 +29,8 @@ class LoadImageCommand(gdb.Command):
             id =  gdb.parse_and_eval("args->image_storage_struct->id")
             timestamp =  gdb.parse_and_eval("args->image_storage_struct->timestamp")
             # Dumping memory
-            gdb.execute(f"dump memory {dump_path}/{id}_{timestamp}.jpeg {memory_start} {memory_end}")
+            fixed_length_id = str(id).zfill(10)
+            gdb.execute(f"dump memory {dump_path}/{fixed_length_id}_{timestamp}.jpeg {memory_start} {memory_end}")
 
             print(f"Memory dumped from {memory_start} to {memory_end} into {dump_path}/{id}_{timestamp}.jpeg")
         # - loop end -
