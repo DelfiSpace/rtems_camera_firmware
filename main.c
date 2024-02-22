@@ -60,6 +60,13 @@ rtems_task Init(rtems_task_argument ignored) {
                                                    .mspi_interface = octospi1,
                                                    .mspi_device = mt29};
 
+  /* ---- Debug gpios */
+  GPIOE->MODER &= ~GPIO_MODER_MODE12_Msk;
+  GPIOE->MODER |= 0b01 << GPIO_MODER_MODE12_Pos;
+
+  GPIOE->MODER &= ~GPIO_MODER_MODE15_Msk;
+  GPIOE->MODER |= 0b01 << GPIO_MODER_MODE15_Pos;
+
   /* ---- TEST CLEAR THE BLOCK ---------------- */
 #ifdef CLEAR_NAND
   for (int i = 0; i < clean_nand_n; i++) {

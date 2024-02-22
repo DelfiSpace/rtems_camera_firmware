@@ -82,6 +82,7 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
   /* set dcmi capture flag */
   DCMI->CR |= DCMI_CR_CAPTURE;
   while (1) {
+    GPIOE->ODR |= GPIO_ODR_OD12;
     DCMI->CR |= DCMI_CR_CAPTURE; // XXX: just for snapshot testing
 
     /* acquire the semaphore */
@@ -92,12 +93,17 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     tock_wait = TIM6->CNT & TIM_CNT_CNT_Msk;
     tick_acq = TIM6->CNT & TIM_CNT_CNT_Msk;
     IFP(uart_write_buf(USART2, "handling the frame\n\r", 20));
+    GPIOE->ODR &= ~GPIO_ODR_OD12;
 
     /* ------------------- */
     /* METADATA HANDLING   */
     /* ------------------- */
     /* get properties of the image in the buffer */
-    if (dcmi_buffer_analyze(&dcmi_buffer_ctx)) {
+    GPIOE->ODR |= GPIO_ODR_OD15;
+    int testvar = dcmi_buffer_analyze(&dcmi_buffer_ctx);
+    GPIOE->ODR &= ~GPIO_ODR_OD15;
+
+    if (testvar) {
 
       /* determine the number of pages necessary to store the image*/
       memset(&image2write, 0x0, sizeof(image2write));
