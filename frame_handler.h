@@ -12,7 +12,7 @@
 #include <stm32l4r9_module_mspi.h>
 #include <stm32l4r9_module_uart.h>
 
-#define MAX_PAGES_IMAGE 40
+#define MAX_PAGES_IMAGE 64
 
 #define IMAGE_NAND_STR_HEAD 0xF0CACC1A
 #define IMAGE_NAND_STR_CLOS 0xFEEDC0DE
@@ -22,7 +22,7 @@
 #define IF_DOWNLOAD
 
 // #define SEARCH_BLOCK_LIMIT MT29_MAX_BLOCKn
-#define SEARCH_BLOCK_LIMIT 20
+#define SEARCH_BLOCK_LIMIT 150
 
 /* this was wayy to much to fit in ram
  * -> do a report of the initial implementaton and than the following
@@ -66,6 +66,7 @@ rtems_task DCMI_frame_handler(rtems_task_argument argument);
 void get_image_storage_status(void *args);
 
 /* accessory methods */
+u32 fast_buffer_analyze(struct dcmi_buffer_context *b_ctx);
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *dcmi_buffer_ctx);
 u32 *dcmi_get_buffer_ptr(void);
 struct nand_addr get_next_nand_addr(struct nand_addr addr);
@@ -82,7 +83,8 @@ struct nand_addr get_next_nand_addr(struct nand_addr addr);
  */
 
 #ifndef IFP
-static u8 frame_handler_doprint = {0};
+// static u8 frame_handler_doprint = {0};
+static u8 frame_handler_doprint = 1;
 #define IFP(codeBlock)                                                         \
   do {                                                                         \
     if (frame_handler_doprint) {                                               \

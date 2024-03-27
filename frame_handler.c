@@ -100,7 +100,7 @@ rtems_task DCMI_frame_handler(rtems_task_argument void_args) {
     /* ------------------- */
     /* get properties of the image in the buffer */
     GPIOE->ODR |= GPIO_ODR_OD15;
-    int testvar = dcmi_buffer_analyze(&dcmi_buffer_ctx);
+    int testvar = fast_buffer_analyze(&dcmi_buffer_ctx);
     GPIOE->ODR &= ~GPIO_ODR_OD15;
 
     if (testvar) {
@@ -295,8 +295,12 @@ void get_image_storage_status(void *void_args) {
     }
   }
 }
-// u32 fast_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
-// }
+u32 fast_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
+  b_ctx->img_head_ptr = (u8 *)b_ctx->buffer_head_ptr;
+  b_ctx->img_tail_ptr = (u8 *)b_ctx->buffer_tail_ptr;
+  b_ctx->img_size = b_ctx->img_tail_ptr - b_ctx->img_head_ptr;
+  return 1;
+}
 
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
   /* determines the head and the tail of the image in buffer,
