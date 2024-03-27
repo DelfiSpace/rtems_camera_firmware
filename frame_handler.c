@@ -295,6 +295,8 @@ void get_image_storage_status(void *void_args) {
     }
   }
 }
+// u32 fast_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
+// }
 
 u32 dcmi_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
   /* determines the head and the tail of the image in buffer,
@@ -317,11 +319,17 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
   volatile u8 ret = {0};
 
 #define CHK_PTR (u8 *)b_ctx->buff_current_circ_ptr
+  u8 *initial_ptr = CHK_PTR;
 
   // NOTE: will fail if the image header/closer is in the middle
   // of the end of the buffer (ff end of buffer, d8 beginning f.expl.)
 
+  char temp_str[22];
+  int n;
+  n = sprintf(temp_str, "%x, chkptr\r\n", CHK_PTR);
+  uart_write_buf(USART2, temp_str, n);
   while (ret == 0) {
+
     /* check if the check pointer is over the tail */
     if ((CHK_PTR + i) > (u8 *)b_ctx->buffer_tail_ptr + 3) {
       if (FOUND_EOBn1) {
@@ -362,11 +370,13 @@ u32 dcmi_buffer_analyze(struct dcmi_buffer_context *b_ctx) {
       b_ctx->img_size += b_ctx->img_tail_ptr - (u8 *)b_ctx->buffer_head_ptr;
     }
     IFP(uart_write_buf(USART2, "+\n\r", 3));
+    b_ctx->buff_current_circ_ptr = b_ctx->buff_current_circ_ptr + i;
     return 1;
   }
   IFP(uart_write_buf(USART2, "-\n\r", 3); char temp_str[22]; int n;
       n = sprintf(temp_str, "%x,%x\r\n", status_reg, ret);
       uart_write_buf(USART2, temp_str, n));
+
   return 0;
 }
 
